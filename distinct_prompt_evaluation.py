@@ -807,7 +807,7 @@ def main():
         for r in improved_results:
             serializable_results.append(
                 {
-                    "image_idx": r["image_idx"],
+                    "image_idx": r["image_idx"] + 1,
                     "actual_attributes": r["actual_attributes"],
                     "clip_scores": r["clip_scores"],
                 }
