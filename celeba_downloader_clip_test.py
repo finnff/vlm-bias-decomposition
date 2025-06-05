@@ -4,19 +4,58 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CelebA
 import random
 from tqdm import tqdm
 import os
 import shutil
+import gc
+
+
+# NUMBER OF SAMPLES TO RUN CLIP ON
+NUM_SAMPLES = 10000
+DATALOADER_WORKERS = 8  # set to CPU cores -1 to prevent crash
+BATCH_SIZE = 256
+PREFETCH_FACTOR = 1
+USE_JIT = True  # JIT compilation helps on older GPUs
+
 
 # Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
+
+if device == "cuda":
+    # Force garbage collection
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.set_grad_enabled(False)
+
 # using ViT-B here as CLIP examples on github also use that
 print("Loading CLIP model...")
-model, preprocess = clip.load("ViT-B/32", device=device)
+model, preprocess = clip.load("ViT-B/32", device=device, jit=USE_JIT)
+model.eval()
+
+
+class PreprocessedCelebA(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, preprocess):
+        self.base = base_dataset
+        self.preprocess = preprocess
+        # Pre-compile the transforms if possible
+        self.to_pil = transforms.ToPILImage()
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, index):
+        img, attrs = self.base[index]
+        # Keep as tensor if possible to avoid CPU-GPU transfers
+        img_pil = self.to_pil(img)
+        img_tensor = self.preprocess(img_pil)
+        return img_tensor, attrs
 
 
 class CelebAExplorer:
@@ -186,7 +225,9 @@ class CelebAExplorer:
         # uncommet to show plot, it gets saved to file regardless
         # plt.show()
 
-    def run_clip_analysis(self, num_samples=50):
+    def run_clip_analysis(
+        self, num_samples=50, batch_size=128, num_workers=4, prefetch_factor=1
+    ):
         """Run CLIP analysis on a subset of CelebA images"""
         print(f"\nRunning CLIP analysis on {num_samples} images...")
 
@@ -205,36 +246,43 @@ class CelebAExplorer:
 
         # Sample random images
         sample_indices = random.sample(range(len(self.dataset)), num_samples)
+        subset = Subset(self.dataset, sample_indices)
+
+        dataloader = DataLoader(
+            PreprocessedCelebA(subset, preprocess),
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=prefetch_factor,
+            persistent_workers=True,
+        )
 
         results = []
+        index_cursor = 0
 
-        for idx in tqdm(sample_indices, desc="Processing images with CLIP"):
-            image, attrs = self.dataset[idx]
-
-            # preprocess image for CLIP
-            image_pil = transforms.ToPILImage()(image)
-            image_input = preprocess(image_pil).unsqueeze(0).to(device)
+        for batch_images, batch_attrs in tqdm(dataloader, desc="Processing batches"):
+            batch_images = batch_images.to(device)
 
             with torch.no_grad():
-                image_features = model.encode_image(image_input)
-                text_features = model.encode_text(text_tokens)
+                logits_per_image, _ = model(batch_images, text_tokens)
+                probs = logits_per_image.softmax(dim=-1).cpu().numpy()
 
-                # calculate similarities, with softmax to get probabilities
-                logits_per_image, logits_per_text = model(image_input, text_tokens)
-                probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
-
-                # Get actual attributes
-                positive_attrs = [
-                    self.attr_names[j] for j in range(len(attrs)) if attrs[j] == 1
-                ]
+            for i in range(batch_images.size(0)):
+                idx = sample_indices[index_cursor]
+                attrs = batch_attrs[i]
+                index_cursor += 1
 
                 results.append(
                     {
                         "image_idx": idx,
-                        "clip_predictions": dict(zip(text_prompts, probs)),
-                        "actual_attributes": positive_attrs,
-                        "top_clip_prediction": text_prompts[np.argmax(probs)],
-                        "top_clip_confidence": float(np.max(probs)),
+                        "clip_predictions": dict(zip(text_prompts, probs[i])),
+                        "actual_attributes": [
+                            self.attr_names[j]
+                            for j in range(len(attrs))
+                            if attrs[j] == 1
+                        ],
+                        "top_clip_prediction": text_prompts[np.argmax(probs[i])],
+                        "top_clip_confidence": float(np.max(probs[i])),
                     }
                 )
 
@@ -503,7 +551,12 @@ def main():
     # show 8 samples in matplotlib
     explorer.visualize_sample_images()
 
-    clip_results = explorer.run_clip_analysis(num_samples=1000)
+    clip_results = explorer.run_clip_analysis(
+        num_samples=NUM_SAMPLES,
+        batch_size=BATCH_SIZE,
+        num_workers=DATALOADER_WORKERS,
+        prefetch_factor=PREFETCH_FACTOR,
+    )
 
     print("\nAnalysis complete!")
     print("Check 'celeba_samples.png' for sample images visualization")

@@ -4,15 +4,22 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CelebA
 import random
 from tqdm import tqdm
 import os
 import shutil
+from scipy.stats import pointbiserialr
+import gc
 
 
 # NUMBER OF SAMPLES TO RUN CLIP ON
-NUM_SAMPLES = 2000
+NUM_SAMPLES = 100000
+DATALOADER_WORKERS = 16  # set to CPU cores -1
+BATCH_SIZE = 256  # with 16 workers+prefetch=2 this requires ~40GB of RAM
+PREFETCH_FACTOR = 2
+USE_JIT = True  # JIT compilation helps on older GPUs
 
 ### FEATURE TOGGLES DISABLE TO SKIP CERTAIN ANALYSIS
 TOGGLE_EXPLORE_DATASET = False
@@ -25,9 +32,37 @@ TOGGLE_EMBEDDING_ANALYSIS = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
+
+if device == "cuda":
+    # Force garbage collection
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.set_grad_enabled(False)
+
 # using ViT-B here as CLIP examples on github also use that
 print("Loading CLIP model...")
-model, preprocess = clip.load("ViT-B/32", device=device)
+model, preprocess = clip.load("ViT-B/32", device=device, jit=USE_JIT)
+model.eval()
+
+
+class PreprocessedCelebA(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, preprocess):
+        self.base = base_dataset
+        self.preprocess = preprocess
+        # Pre-compile the transforms if possible
+        self.to_pil = transforms.ToPILImage()
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, index):
+        img, attrs = self.base[index]
+        # Keep as tensor if possible to avoid CPU-GPU transfers
+        img_pil = self.to_pil(img)
+        img_tensor = self.preprocess(img_pil)
+        return img_tensor, attrs
 
 
 class CelebAExplorer:
@@ -198,9 +233,13 @@ class CelebAExplorer:
         # uncommet to show plot, it gets saved to file regardless
         # plt.show()
 
-    def run_improved_clip_analysis(self, num_samples=50):
-        """Run improved CLIP analysis with better prompt design and metrics"""
-        print(f"\nRunning improved CLIP analysis on {num_samples} images...")
+    def run_improved_clip_analysis(
+        self, num_samples=50, batch_size=128, num_workers=8, prefetch_factor=1
+    ):
+        """Run improved CLIP analysis with batch processing for speedup"""
+        print(
+            f"\nRunning improved CLIP analysis on {num_samples} images (batch size: {batch_size}, num_workers: {num_workers}, prefetch_factor: {prefetch_factor})..."
+        )
 
         # instead of previous version, we now have binary prompts for certain attributes,
         # a person either is male or is female, has glasses or doesn't, etc.
@@ -394,65 +433,76 @@ class CelebAExplorer:
             ],
         }
 
-        # Sample random images
+        # Prepare all prompts for tokenization
+        all_prompts = prompt_groups["gender"].copy()
+        for pos, neg in prompt_groups["binary_attributes"].values():
+            all_prompts.extend([pos, neg])
+
+        all_tokens = clip.tokenize(all_prompts).to(device)
+        with torch.no_grad():
+            all_text_features = model.encode_text(all_tokens)
+            all_text_features = all_text_features / all_text_features.norm(
+                dim=-1, keepdim=True
+            )
+
         sample_indices = random.sample(range(len(self.dataset)), num_samples)
+        subset = torch.utils.data.Subset(self.dataset, sample_indices)
+        preprocessed_subset = PreprocessedCelebA(subset, preprocess)
+
+        dataloader = torch.utils.data.DataLoader(
+            preprocessed_subset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=prefetch_factor,
+            persistent_workers=True,
+        )
+
         results = []
 
-        for idx in tqdm(sample_indices, desc="Processing images with CLIP"):
-            image, attrs = self.dataset[idx]
-            image_pil = transforms.ToPILImage()(image)
-            image_input = preprocess(image_pil).unsqueeze(0).to(device)
+        for batch_images, batch_attrs in tqdm(dataloader, desc="Processing batches"):
+            # Batch image preprocessing (still needs to run on CPU due to PIL and transforms)
+            # images = [preprocess(transforms.ToPILImage()(img)) for img in batch_images]
+            # batch_tensor = torch.stack(images).to(device)
 
-            result = {
-                "image_idx": idx,
-                "actual_attributes": [
-                    self.attr_names[j] for j in range(len(attrs)) if attrs[j] == 1
-                ],
-                "clip_scores": {},
-            }
+            # Faster way with Tensors and pinned memory
+            batch_tensor = batch_images.to(device)
 
             with torch.no_grad():
-                # Get image features once
-                image_features = model.encode_image(image_input)
-                image_features = image_features / image_features.norm(
+                batch_features = model.encode_image(batch_tensor)
+                batch_features = batch_features / batch_features.norm(
                     dim=-1, keepdim=True
                 )
+                similarities = 100.0 * batch_features @ all_text_features.T
 
-                # Analyze gender separately
-                gender_tokens = clip.tokenize(prompt_groups["gender"]).to(device)
-                gender_features = model.encode_text(gender_tokens)
-                gender_features = gender_features / gender_features.norm(
-                    dim=-1, keepdim=True
-                )
-
-                # now calculating the cosine similarity in embedding space
-                gender_similarities = (
-                    100.0 * image_features @ gender_features.T
-                ).softmax(dim=-1)
-                result["clip_scores"]["gender"] = {
-                    "man": float(gender_similarities[0, 0]),
-                    "woman": float(gender_similarities[0, 1]),
+            for j in range(batch_tensor.size(0)):
+                idx = sample_indices.pop(0)
+                attrs = batch_attrs[j]
+                result = {
+                    "image_idx": idx,
+                    "actual_attributes": [
+                        self.attr_names[k] for k in range(len(attrs)) if attrs[k] == 1
+                    ],
+                    "clip_scores": {},
                 }
 
-                # Analyze binary attributes with paired comparisons
-                for attr_name, (pos_prompt, neg_prompt) in prompt_groups[
-                    "binary_attributes"
-                ].items():
-                    pair_tokens = clip.tokenize([pos_prompt, neg_prompt]).to(device)
-                    pair_features = model.encode_text(pair_tokens)
-                    pair_features = pair_features / pair_features.norm(
-                        dim=-1, keepdim=True
-                    )
+                img_sims = similarities[j]
 
-                    # Get softmax between the pair only
-                    pair_similarities = (
-                        100.0 * image_features @ pair_features.T
-                    ).softmax(dim=-1)
-                    result["clip_scores"][attr_name] = float(
-                        pair_similarities[0, 0]
-                    )  # Probability of positive attribute
+                # Gender scores
+                gender_sims = img_sims[:2].softmax(dim=-1)
+                result["clip_scores"]["gender"] = {
+                    "man": float(gender_sims[0]),
+                    "woman": float(gender_sims[1]),
+                }
 
-            results.append(result)
+                # Binary attribute scores
+                prompt_idx = 2
+                for attr_name in prompt_groups["binary_attributes"]:
+                    pair_sims = img_sims[prompt_idx : prompt_idx + 2].softmax(dim=-1)
+                    result["clip_scores"][attr_name] = float(pair_sims[0])
+                    prompt_idx += 2
+
+                results.append(result)
 
         return self.analyze_improved_results(results)
 
@@ -594,8 +644,10 @@ class CelebAExplorer:
 
         return results
 
-    def compute_embedding_similarities(self, num_samples=100):
-        """Alternative approach: Compare CLIP and CelebA in embedding space"""
+    def compute_embedding_similarities(
+        self, num_samples=50, batch_size=128, num_workers=8, prefetch_factor=1
+    ):
+        """Compare CLIP and CelebA in embedding space"""
         print(f"\nComputing embedding similarities for {num_samples} images...")
 
         # Create text prompts for each CelebA attribute
@@ -613,27 +665,51 @@ class CelebAExplorer:
 
         # Sample images and compute correlations
         sample_indices = random.sample(range(len(self.dataset)), num_samples)
-        image_embeddings = []
-        attribute_labels = []
+        # Process in chunks
+        chunk_size = 50000
+        all_image_embeddings = []
+        all_attribute_labels = []
 
-        for idx in tqdm(sample_indices, desc="Processing images"):
-            image, attrs = self.dataset[idx]
-            image_pil = transforms.ToPILImage()(image)
-            image_input = preprocess(image_pil).unsqueeze(0).to(device)
+        for chunk_start in range(0, num_samples, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_samples)
+            chunk_indices = sample_indices[chunk_start:chunk_end]
 
-            with torch.no_grad():
-                image_features = model.encode_image(image_input)
-                image_features = image_features / image_features.norm(
-                    dim=-1, keepdim=True
-                )
-                image_embeddings.append(image_features.cpu().numpy())
-                attribute_labels.append(attrs.numpy())
+            # Subset and dataset
+            subset = Subset(self.dataset, chunk_indices)
+            dataset = PreprocessedCelebA(subset, preprocess)
 
-        # Compute correlation between CLIP similarities and CelebA labels
-        image_embeddings = np.vstack(image_embeddings)
-        attribute_labels = np.vstack(attribute_labels)
+            dataloader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                pin_memory=True,
+                prefetch_factor=prefetch_factor,
+            )
 
-        # Compute all pairwise similarities
+            chunk_embeddings = []
+            chunk_labels = []
+
+            for batch_images, batch_attrs in tqdm(
+                dataloader,
+                desc=f"Chunk {chunk_start}-{chunk_end}",
+                leave=False,
+            ):
+                batch_images = batch_images.to(device)
+                with torch.no_grad():
+                    batch_features = model.encode_image(batch_images)
+                    batch_features = batch_features / batch_features.norm(
+                        dim=-1, keepdim=True
+                    )
+                chunk_embeddings.append(batch_features.cpu().numpy())
+                chunk_labels.append(batch_attrs.numpy())
+
+            all_image_embeddings.append(np.vstack(chunk_embeddings))
+            all_attribute_labels.append(np.vstack(chunk_labels))
+            torch.cuda.empty_cache()
+
+        # Combine all
+        image_embeddings = np.vstack(all_image_embeddings)
+        attribute_labels = np.vstack(all_attribute_labels)
         similarities = image_embeddings @ text_features.cpu().numpy().T
 
         # Analyze correlation for each attribute
@@ -663,11 +739,7 @@ class CelebAExplorer:
             has_attr = attribute_labels[:, i] == 1
 
             if has_attr.sum() > 0 and (~has_attr).sum() > 0:
-                # Point-biserial correlation
-                from scipy.stats import pointbiserialr
-
-                corr, p_value = pointbiserialr(has_attr, similarities[:, i])
-
+                corr, _ = pointbiserialr(has_attr, similarities[:, i])
                 mean_has = similarities[has_attr, i].mean()
                 mean_hasnt = similarities[~has_attr, i].mean()
 
@@ -676,7 +748,7 @@ class CelebAExplorer:
         # Sort by correlation strength
         correlations.sort(key=lambda x: abs(x[1]), reverse=True)
 
-        for attr_name, corr, mean_has, mean_hasnt in correlations[:15]:  # Top 15
+        for attr_name, corr, mean_has, mean_hasnt in correlations[:40]:  # Top 40
             print(
                 f"{attr_name:<20} | {corr:>12.3f} | {mean_has:>15.3f} | {mean_hasnt:>19.3f}"
             )
@@ -705,14 +777,24 @@ def main():
         print("\n" + "=" * 76)
         print("IMPROVED CLIP ANALYSIS WITH BINARY COMPARISONS")
         print("=" * 76)
-        improved_results = analyzer.run_improved_clip_analysis(num_samples=NUM_SAMPLES)
+        improved_results = analyzer.run_improved_clip_analysis(
+            num_samples=NUM_SAMPLES,
+            batch_size=BATCH_SIZE,
+            num_workers=DATALOADER_WORKERS,
+            prefetch_factor=PREFETCH_FACTOR,
+        )
 
     # Run the embedding similarity analysis
     if TOGGLE_EMBEDDING_ANALYSIS:
         print("\n" + "=" * 76)
         print("EMBEDDING SPACE CORRELATION ANALYSIS")
         print("=" * 76)
-        analyzer.compute_embedding_similarities(num_samples=NUM_SAMPLES)
+        analyzer.compute_embedding_similarities(
+            num_samples=NUM_SAMPLES,
+            batch_size=BATCH_SIZE,
+            num_workers=DATALOADER_WORKERS,
+            prefetch_factor=PREFETCH_FACTOR,
+        )
 
     # Save results for later analysis
     print("\nSaving analysis results...")
