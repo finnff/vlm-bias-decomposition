@@ -32,8 +32,8 @@ def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
     print(f"\nGroup 1 (male & no_beard & attractive & young):  {len(idxs_group1)} examples")
     print(f"Group 2 (male & no no_beard & no attractive & no young):  {len(idxs_group2)} examples\n")
 
-    X_group1 = clip_embeddings[idxs_group1].numpy()
-    X_group2 = clip_embeddings[idxs_group2].numpy()
+    X_group1 = clip_embeddings[idxs_group1] #.numpy()
+    X_group2 = clip_embeddings[idxs_group2] #.numpy()
 
     probs_group1 = clf.predict_proba(X_group1)[:, 1]
     probs_group2 = clf.predict_proba(X_group2)[:, 1]
@@ -58,5 +58,5 @@ def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
     plt.xlabel("Predicted Probability")
     plt.ylabel("Count")
     plt.tight_layout()
-    plt.savefig("male_groups_confidence_hist.png")
+    plt.savefig("male_groups_confidence_hist_1.png")
     plt.show()

@@ -6,13 +6,26 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 #make classifier
 def train_gender_classifier(clip_embeddings, gender_labels):
+
+    if hasattr(clip_embeddings, "numpy"):
+        X = clip_embeddings.numpy()
+    else:
+        X = clip_embeddings
+
+    if hasattr(gender_labels, "numpy"):
+        y = gender_labels.numpy()
+    else:
+        y = gender_labels
+
+
     X_train, X_test, y_train, y_test = train_test_split(
-        clip_embeddings.numpy(),
-        gender_labels.numpy(),
+        X,
+        y,
         test_size=0.2,
         random_state=42,
-        stratify=gender_labels.numpy()
+        stratify=y
     )
+    
     clf = LogisticRegression(max_iter=1000)
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)

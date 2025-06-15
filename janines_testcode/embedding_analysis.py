@@ -118,8 +118,8 @@ def plot_attribute_bias_directions(clip_embeddings, attr_matrix, attr_names):
         print(f"  {i+1:2d}. {name:<20s}  → distance = {dist:.4f}")
 
     male_idx = attr_names.index("Male")
-    mu_female = neg_centroids[male_idx]   # [2] array for "Male = 0"
-    mu_male   = pos_centroids[male_idx]   # [2] array for "Male = 1"
+    mu_female = neg_centroids[male_idx]   # "Male = 0"
+    mu_male   = pos_centroids[male_idx]   # "Male = 1"
     v_mf = mu_male - mu_female            # 2D vector pointing Female→Male
     norm_vmf = np.linalg.norm(v_mf)
 
