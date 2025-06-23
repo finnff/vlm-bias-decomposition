@@ -11,7 +11,7 @@ conda create -n clipenv python=3.8 --yes
 conda activate clipenv
 
 conda install --yes -c pytorch pytorch=1.7.1 torchvision cudatoolkit=11.0
-pip install ftfy regex tqdm pandas matplotlib requests gdown scipy
+pip install ftfy regex tqdm pandas matplotlib requests gdown scipy scikit-learn seaborn adjustText
 pip install git+https://github.com/openai/CLIP.git
 ```
 
