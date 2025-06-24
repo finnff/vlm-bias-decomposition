@@ -44,6 +44,7 @@ clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset
 idx_young      = attr_names.index("Young")
 idx_attractive = attr_names.index("Attractive")
 idx_beard      = attr_names.index("No_Beard")
+temp           = attr_names.index("Gray_Hair")
 
 mu_young_pos      = X[attr_mat[:, idx_young] == 1].mean(axis=0)   #u⁺
 mu_young_neg      = X[attr_mat[:, idx_young] == 0].mean(axis=0)   #u⁻
@@ -51,33 +52,40 @@ mu_attr_pos       = X[attr_mat[:, idx_attractive] == 1].mean(axis=0)
 mu_attr_neg       = X[attr_mat[:, idx_attractive] == 0].mean(axis=0)
 mu_beard_pos      = X[attr_mat[:, idx_beard] == 1].mean(axis=0)   #u⁺
 mu_beard_neg      = X[attr_mat[:, idx_beard] == 0].mean(axis=0)   #u⁻
+mu_temp_pos      = X[attr_mat[:, temp] == 1].mean(axis=0)   #u⁺
+mu_temp_neg      = X[attr_mat[:, temp] == 0].mean(axis=0)   #u⁻
 
 v_young      = mu_young_pos - mu_young_neg
 v_attractive = mu_attr_pos  - mu_attr_neg
 v_beard = mu_beard_pos - mu_beard_neg
+v_temp = mu_temp_pos - mu_temp_neg
 
 #stupid pythonnn typinngggg
 v_young      = v_young.astype(np.float32)
 v_attractive = v_attractive.astype(np.float32)
 v_beard = v_beard.astype(np.float32)
+v_temp = v_temp.astype(np.float32)
 
 v_young      /= np.linalg.norm(v_young)
 v_attractive /= np.linalg.norm(v_attractive)
 v_beard /= np.linalg.norm(v_beard)
+v_temp /= np.linalg.norm(v_temp)
 
-B = np.stack([v_young, v_attractive, v_beard], axis=1)    #(D, 2)
-Q, _ = np.linalg.qr(B)                           #Q: (D, 2) orthonormal
-bias_basis = Q.T                                 #(2, D)
+#B = np.stack([v_young, v_attractive, v_beard], axis=1)    #(D, 3) D = direction\
+B = np.stack([v_temp], axis=1)
+Q, _ = np.linalg.qr(B)                           #Q: (D, 3) orthonormal
+bias_basis = Q.T                                 #(3, D)
 
 X_hard_yt = hard_debias(X, bias_basis)
-X_soft_yt = soft_debias(X, bias_basis, lam=3.5)
+X_soft_yt = soft_debias(X, bias_basis, lam=7.5)
 
-clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_soft_yt, gender_labels)
+clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_hard_yt, gender_labels)
 
 gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
 eval_classifier(y_test, y_pred)
 
 compare_male_groups_ttest(clf, X_soft_yt, attr_mat, attr_names)
+
 
 """
 base:

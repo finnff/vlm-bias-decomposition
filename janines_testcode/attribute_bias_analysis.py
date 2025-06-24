@@ -7,25 +7,28 @@ import matplotlib.pyplot as plt
 
 def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
     male_idx = attr_names.index("Male")
-    no_beard_idx = attr_names.index("No_Beard")
-    attractive_idx = attr_names.index("Attractive")
-    young_idx = attr_names.index("Young")
+    no_beard_idx = attr_names.index("No_Beard") #fem alligned
+    attractive_idx = attr_names.index("Attractive") #fem alligned
+    young_idx = attr_names.index("Young")   #fem alligned
+    temp_idx = attr_names.index("Gray_Hair")  #male alligned
 
     # Group 1: male & no beard & attractive & young
     mask_group1 = (
-        (attr_matrix[:, male_idx] == 1) &
-        (attr_matrix[:, no_beard_idx] == 1) &
-        (attr_matrix[:, attractive_idx] == 1) &
-        (attr_matrix[:, young_idx] == 1)
+       #( attr_matrix[:, male_idx] == 1) &
+       # (attr_matrix[:, no_beard_idx] == 1) &
+       # (attr_matrix[:, attractive_idx] == 1) &
+       # (attr_matrix[:, young_idx] == 1)
+       (attr_matrix[:, temp_idx] == 0)
     )
     idxs_group1 = np.where(mask_group1)[0]
 
     # Group 2: male & no no_beard & no attractive & no young
     mask_group2 = (
-        (attr_matrix[:, male_idx] == 1) &
-        (attr_matrix[:, no_beard_idx] == 0) &
-        (attr_matrix[:, attractive_idx] == 0) &
-        (attr_matrix[:, young_idx] == 0)
+        #(attr_matrix[:, male_idx] == 1) &
+        #(attr_matrix[:, no_beard_idx] == 0) &
+        #(attr_matrix[:, attractive_idx] == 0) &
+        #(attr_matrix[:, young_idx] == 0)
+        (attr_matrix[:, temp_idx] == 1)
     )
     idxs_group2 = np.where(mask_group2)[0]
 
