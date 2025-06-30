@@ -5,7 +5,7 @@ from scipy.stats import ttest_ind
 import matplotlib.pyplot as plt
 
 
-def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
+def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, figsize=(8, 4), title_fontsize=14, label_fontsize=12):
     male_idx = attr_names.index("Male")
     no_beard_idx = attr_names.index("No_Beard") #fem alligned
     attractive_idx = attr_names.index("Attractive") #fem alligned
@@ -32,7 +32,7 @@ def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
     )
     idxs_group2 = np.where(mask_group2)[0]
 
-    print(f"\nGroup 1 (male & no_beard & attractive & young):  {len(idxs_group1)} examples")
+    print(f"\nGroup 1 (female‐associated attributes)  = {len(idxs_group1)} examples")
     print(f"Group 2 (male & no no_beard & no attractive & no young):  {len(idxs_group2)} examples\n")
 
     X_group1 = clip_embeddings[idxs_group1] #.numpy()
@@ -53,13 +53,15 @@ def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names):
     print(f"Two‐sample t‐test: t = {t_stat:.2f},  p = {p_val:.3e}")
 
 
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=figsize)
     plt.hist(probs_group1, bins=50, alpha=0.6, label="Group 1 (female‐associated attributes)")
     plt.hist(probs_group2, bins=50, alpha=0.6, label="Group 2 (none of those attributes)")
-    plt.legend()
-    plt.title("Predicted P(male) Distribution for Male Groups")
-    plt.xlabel("Predicted Probability")
-    plt.ylabel("Count")
+    plt.legend(fontsize=label_fontsize)
+    plt.title("Predicted P(male) Distribution for Male Groups", fontsize=title_fontsize)
+    plt.xlabel("Predicted Probability", fontsize=label_fontsize)
+    plt.ylabel("Count", fontsize=label_fontsize)
+    plt.xticks(fontsize=label_fontsize)
+    plt.yticks(fontsize=label_fontsize)
     plt.tight_layout()
     plt.savefig("male_groups_confidence_hist_1.png")
     plt.show()

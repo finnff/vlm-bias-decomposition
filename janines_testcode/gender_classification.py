@@ -45,5 +45,8 @@ def eval_classifier(y_test, y_pred):
 
 
 def gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test):
-    print(f"Gender classifier training accuracy: {clf.score(X_train, y_train):.4f}")
-    print(f"Gender classifier test accuracy:     {clf.score(X_test, y_test):.4f}")
+    train_acc = clf.score(X_train, y_train)
+    test_acc = clf.score(X_test, y_test)
+    print(f"Gender classifier training accuracy: {train_acc:.4f}")
+    print(f"Gender classifier test accuracy:     {test_acc:.4f}")
+    return test_acc

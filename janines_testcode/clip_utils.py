@@ -3,6 +3,8 @@ from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
 import clip
 from tqdm import tqdm
+import math
+from itertools import islice
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32", device=device)
@@ -26,9 +28,10 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
     gender_labels = []
     image_list = []  # store raw PIL images for visualization
 
-    for i, (images, attrs) in enumerate(tqdm(dataloader)):
-        if i * batch_size >= max_samples:
-            break
+    num_batches = math.ceil(max_samples / batch_size)
+    limited_loader = islice(dataloader, num_batches)
+
+    for images, attrs in tqdm(limited_loader, total=num_batches, desc="Getting labels", unit="batch"):
 
         labels = attrs[:, male_idx].int()
         images = images.to(device)
@@ -53,10 +56,10 @@ def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=5000):
     attr_list = []
     idx_list = []
 
-    total_seen = 0
-    for batch_idx, (images, attrs) in enumerate(tqdm(loader)):
-        if total_seen >= max_samples:
-            break
+    num_batches = math.ceil(max_samples / batch_size)
+    limited_loader = islice(loader, num_batches)
+
+    for batch_idx, (images, attrs) in enumerate(tqdm(limited_loader, total=num_batches, desc="Getting all embeddings", unit="batch")):
 
         current_batch_size = images.size(0)
         labels = attrs[:, :].int()  # shape [batch, 40]
@@ -72,7 +75,6 @@ def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=5000):
         for offset in range(current_batch_size):
             idx_list.append(start_idx + offset)
 
-        total_seen += current_batch_size
 
     clip_embs = torch.cat(clip_embs, dim=0)           # [N,512]
     attr_mat = torch.cat(attr_list, dim=0).numpy()    # [N,40]

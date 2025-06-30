@@ -31,7 +31,7 @@ from sklearn.manifold import TSNE
 TOGGLE_GENDER_CLASSIFICATION = True
 TOGGLE_PCA_VISUALIZATION = False 
 TOGGLE_TSNE_VISUALIZATION = False 
-TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = False
+TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
 TOGGLE_MISCLASSIFIED_VISUALIZATION = False 
 TOGGLE_MALE_GROUP_COMPARISON = False 
 TOGGLE_DEBIASING_ANALYSIS = True
@@ -52,9 +52,9 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Visualization Configuration
 PLOT_STYLE = "darkgrid"  # seaborn style: 'darkgrid', 'whitegrid', 'dark', 'white', 'ticks'
 FIGURE_DPI = 300
-FONT_SIZE = 18
-TITLE_SIZE = 22
-LABEL_SIZE = 20
+FONT_SIZE = 17
+TITLE_SIZE = 20
+LABEL_SIZE = 18
 
 # PCA/t-SNE plot configuration
 SCATTER_ALPHA = 0.6
@@ -62,17 +62,19 @@ SCATTER_SIZE = 50
 COLOR_PALETTE = ["#FF6B6B", "#4ECDC4"]  # Red for Female, Teal for Male
 
 # Attribute bias plot configuration
-ARROW_BIAS_DIRECTIONS = ["No_Beard", "Young", "Gray_Hair","Bald"] # Attributes to highlight with arrows in the plots
+# ARROW_BIAS_DIRECTIONS = ["No_Beard", "Young", "Gray_Hair","Bald", "Pale_Skin"] # Attributes to highlight with arrows in the plots
 # ATTRIBUTES_TO_SHOW = None  # None for all, or list like ["Male", "Young", "Attractive"]
-ATTRIBUTES_TO_SHOW = ["No_Beard", "Young", "Gray_Hair","Bald"] # Attributes to highlight with arrows in the plots
+ATTRIBUTES_TO_SHOW = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin","5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
+ARROW_BIAS_DIRECTIONS = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin", "5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
 
-BIAS_LINE_WIDTH = 1.5
+
+BIAS_LINE_WIDTH = 4.0
 BIAS_TEXT_SIZE = 10
 
 # Debiasing Configuration
 DEBIAS_LAMBDA = 3.5  # For soft debiasing
 # BIAS_ATTRIBUTES = ["Wearing_Necklace", "Rosy_Cheeks", "Goatee", "Wearing_Lipstick",  "No_Beard"]  # Attributes to debias
-BIAS_ATTRIBUTES = ["No_Beard", "Young", "Gray_Hair","Bald"] # Attributes to highlight with arrows in the plots
+BIAS_ATTRIBUTES = ["No_Beard", "Young", "Gray_Hair","Bald", "Pale_Skin"] # Attributes to highlight with arrows in the plots
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -207,7 +209,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
         else:
             neg_c = np.nan
         pos_c = pos_centroids[a_idx]
-        if np.isnan(neg_c).any() or np.isnan(pos_c).any():
+        if (DISPLAY_NEGATIVE_CENTROIDS and np.isnan(neg_c).any()) or np.isnan(pos_c).any():
             continue
 
         # styling
@@ -253,8 +255,11 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
 
     
     # Set axis limits to ensure centering
-    all_points = np.vstack([neg_centroids[~np.isnan(neg_centroids).any(axis=1)],
+    if DISPLAY_NEGATIVE_CENTROIDS:
+        all_points = np.vstack([neg_centroids[~np.isnan(neg_centroids).any(axis=1)],
                            pos_centroids[~np.isnan(pos_centroids).any(axis=1)]])
+    else:
+        all_points = pos_centroids[~np.isnan(pos_centroids).any(axis=1)]
     max_range = np.max(np.abs(all_points)) * 1.1
     
     # Make plot square and centered
@@ -287,7 +292,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     if not DISPLAY_NEGATIVE_CENTROIDS:
         legend_elements.pop(0)
 
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10, bbox_to_anchor=(1.25, 1))
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=LABEL_SIZE, bbox_to_anchor=(1.25, 1))
     
     adjust_text(texts, arrowprops=dict(arrowstyle='->', color='gray', alpha=0.5))
     plt.tight_layout(rect=[0, 0, 0.85, 1])
@@ -296,73 +301,102 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     # ===== PLOT 2: Only selected attributes for clarity =====
     plt.figure(figsize=(10, 10))
     ax = plt.gca()
+    texts2 = []
     
     # Plot only selected attributes
     for name, color in color_map.items():
         a_idx = attr_names.index(name)
-        neg_c = neg_centroids[a_idx]
+        if DISPLAY_NEGATIVE_CENTROIDS:
+            neg_c = neg_centroids[a_idx]
+        else:
+            neg_c = np.nan
         pos_c = pos_centroids[a_idx]
         
-        if np.isnan(neg_c).any() or np.isnan(pos_c).any():
+        if (DISPLAY_NEGATIVE_CENTROIDS and np.isnan(neg_c).any()) or np.isnan(pos_c).any():
             continue
         
         # Plot centroids with distinct markers
+        #
         if DISPLAY_NEGATIVE_CENTROIDS:
             ax.scatter(neg_c[0], neg_c[1], c=[color], s=300, alpha=0.9, 
-                    marker='o', edgecolors='black', linewidth=2.5)
+              marker='o', edgecolors='black', linewidth=2.5)
         ax.scatter(pos_c[0], pos_c[1], c=[color], s=300, alpha=0.9,
-                marker='X', edgecolors='black', linewidth=2.5)
+                  marker='.', edgecolors='black', linewidth=2.5)
         
         # Draw arrow
         if DISPLAY_NEGATIVE_CENTROIDS:
+            # Arrow from negative to positive centroid
             ax.annotate('', xy=pos_c, xytext=neg_c,
-                    arrowprops=dict(arrowstyle='<|-|>', color=color, lw=3.5, alpha=0.9, mutation_scale=25))
+                       arrowprops=dict(arrowstyle='<|-|>', color=color, lw=BIAS_LINE_WIDTH, alpha=0.9, mutation_scale=25))
+        else:
+            # Arrow from center to positive centroid
+            center = np.array([0.0, 0.0])
+            ax.annotate('', xy=pos_c, xytext=center,
+                       arrowprops=dict(arrowstyle='->', color=color, lw=BIAS_LINE_WIDTH, alpha=0.9, mutation_scale=25))
         
         # Add labels near the points
         if DISPLAY_NEGATIVE_CENTROIDS:
             direction = pos_c - neg_c
             direction_norm = direction / np.linalg.norm(direction)
             
-            ax.text(neg_c[0] - direction_norm[0]*0.2, 
-                neg_c[1] - direction_norm[1]*0.2, 
-                f'{name} (-)', 
-                fontsize=12, fontweight='bold', ha='center', va='center',
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                            edgecolor=color, linewidth=1.5, alpha=0.9))
+            text_neg = ax.text(neg_c[0] - direction_norm[0]*0.2, 
+                   neg_c[1] - direction_norm[1]*0.2, 
+                   f'{name} (-)', 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_neg)
+            
+            text_pos = ax.text(pos_c[0] + direction_norm[0]*0.2, 
+                   pos_c[1] + direction_norm[1]*0.2, 
+                   f'{name} (+)', 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_pos)
         else:
-            direction = pos_c
-            direction_norm = direction / np.linalg.norm(direction)
-        
-        ax.text(pos_c[0] + direction_norm[0]*0.2, 
-               pos_c[1] + direction_norm[1]*0.2, 
-               f'{name} (+)', 
-               fontsize=12, fontweight='bold', ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                        edgecolor=color, linewidth=1.5, alpha=0.9))
-    
+            # Only label the positive centroid
+            text_obj = ax.text(pos_c[0], pos_c[1], name, 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_obj)
+            
+       
     # Set centered axis limits for selected attributes only
     selected_indices = [attr_names.index(name) for name in ARROW_BIAS_DIRECTIONS 
                        if name in attr_names]
     if selected_indices:
-        selected_points = np.vstack([
-            neg_centroids[selected_indices][~np.isnan(neg_centroids[selected_indices]).any(axis=1)],
-            pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
-        ])
-        max_range = np.max(np.abs(selected_points)) * 1.2
-        ax.set_xlim(-max_range, max_range)
-        ax.set_ylim(-max_range, max_range)
+        if DISPLAY_NEGATIVE_CENTROIDS:
+            selected_points = np.vstack([
+                neg_centroids[selected_indices][~np.isnan(neg_centroids[selected_indices]).any(axis=1)],
+                pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
+            ])
+        else:
+            selected_points = pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
+
+        if selected_points.size > 0:
+            x_min, x_max = selected_points[:, 0].min(), selected_points[:, 0].max()
+            y_min, y_max = selected_points[:, 1].min(), selected_points[:, 1].max()
+
+            x_padding = (x_max - x_min) * 0.2
+            y_padding = (y_max - y_min) * 0.2
+
+            ax.set_xlim(x_min - x_padding, x_max + x_padding)
+            ax.set_ylim(y_min - y_padding, y_max + y_padding)
     
     # Add zero lines
     ax.axhline(y=0, color='k', linestyle='--', alpha=0.5, linewidth=1)
     ax.axvline(x=0, color='k', linestyle='--', alpha=0.5, linewidth=1)
     
     ax.set_title(f"Bias Directions for: {', '.join(ARROW_BIAS_DIRECTIONS)}", 
-                fontsize=TITLE_SIZE)
-    ax.set_xlabel(f"PCA Component 1 ({pca.explained_variance_ratio_[0]:.1%} variance)")
-    ax.set_ylabel(f"PCA Component 2 ({pca.explained_variance_ratio_[1]:.1%} variance)")
+                fontsize=TITLE_SIZE,wrap=True)
+    ax.set_xlabel(f"PCA Component 1 ({pca.explained_variance_ratio_[0]:.1%} variance)",fontsize=LABEL_SIZE)
+    ax.set_ylabel(f"PCA 2 ({pca.explained_variance_ratio_[1]:.1%} variance)",fontsize=LABEL_SIZE)
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal', 'box')
     
+    adjust_text(texts2, arrowprops=dict(arrowstyle='->', color='gray', alpha=0.5))
     plt.tight_layout()
     save_plot("attribute_bias_selected_only.png")
     
@@ -458,7 +492,7 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
     results = {}
     accuracies = {}
     for name, X_version in [("Original", X), ("Hard Debias", X_hard), 
-                            ("Soft Debias (λ={})".format(DEBIAS_LAMBDA), X_soft)]:
+                            ("Soft Debias(λ={})".format(DEBIAS_LAMBDA), X_soft)]:
         print(f"\n{name} Embeddings:")
         clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_version, gender_labels)
         acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
@@ -466,7 +500,18 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
         accuracies[name] = acc
     
     # Visualize debiasing effect
-    fig, axes = plt.subplots(1, 3, figsize=(18, 7), sharex=True, sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 8) )
+    
+    # Calculate global axis limits for consistent scaling
+    all_X_2d = []
+    for name, (clf, X_version) in results.items():
+        pca_temp = PCA(n_components=2)
+        X_2d_temp = pca_temp.fit_transform(X_version[:1000])
+        all_X_2d.append(X_2d_temp)
+    
+    # Find the maximum range across all plots for consistent scaling
+    all_points = np.vstack(all_X_2d)
+    max_range = np.max(np.abs(all_points)) * 1.1
     
     for i, (name, (clf, X_version)) in enumerate(results.items()):
         ax = axes[i]
@@ -480,11 +525,13 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
                             cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
                             alpha=0.6, s=40, edgecolors='none')
         
-        ax.set_title(f"{name}\nAccuracy: {accuracies[name]:.2%}", fontsize=TITLE_SIZE)
+        ax.set_title(f"{name}\nAccuracy: {accuracies[name]:.2%}", fontsize=TITLE_SIZE+4)
         ax.set_xlabel("PC 1")
         if i == 0:
             ax.set_ylabel("PC 2")
-        ax.grid(True, alpha=0.3)
+        ax.set_xlim(-max_range+1, max_range-1)
+        ax.set_ylim(-max_range, max_range)
+        ax.grid(True, alpha=0.4)
         ax.set_aspect('equal', 'box')
 
     # Add a single legend for the entire figure
@@ -492,9 +539,9 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
         Patch(facecolor=COLOR_PALETTE[0], label='Female'),
         Patch(facecolor=COLOR_PALETTE[1], label='Male')
     ]
-    fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.95, 0.95), fontsize=LABEL_SIZE)
+    fig.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0.0, 0.99), fontsize=LABEL_SIZE+3)
     
-    plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 2)
+    plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 6)
     plt.tight_layout(rect=[0, 0, 0.9, 1])
     save_plot("debiasing_comparison.png")
     
