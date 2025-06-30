@@ -26,7 +26,6 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
     dataloader = DataLoader(dataset, batch_size=batch_size)
     clip_embeddings = []
     gender_labels = []
-    image_list = []  # store raw PIL images for visualization
 
     num_batches = math.ceil(max_samples / batch_size)
     limited_loader = islice(dataloader, num_batches)
@@ -41,12 +40,11 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
 
         clip_embeddings.append(features)
         gender_labels.append(labels)
-        image_list.extend(images.cpu())  # Store images (normalized tensors)
 
     clip_embeddings = torch.cat(clip_embeddings, dim=0)
     gender_labels = torch.cat(gender_labels, dim=0)
 
-    return clip_embeddings, gender_labels, image_list
+    return clip_embeddings, gender_labels
 
 
 def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=5000):

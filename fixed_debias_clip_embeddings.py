@@ -42,11 +42,11 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
-MAX_SAMPLES = 5000
-BATCH_SIZE = 256
+MAX_SAMPLES = 100000
+BATCH_SIZE = 512
 
 # Output Configuration
-OUTPUT_DIR = "result_imgs"
+OUTPUT_DIR = "result_imgs_100k"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Visualization Configuration
@@ -74,7 +74,9 @@ BIAS_TEXT_SIZE = 10
 # Debiasing Configuration
 DEBIAS_LAMBDA = 3.5  # For soft debiasing
 # BIAS_ATTRIBUTES = ["Wearing_Necklace", "Rosy_Cheeks", "Goatee", "Wearing_Lipstick",  "No_Beard"]  # Attributes to debias
-BIAS_ATTRIBUTES = ["No_Beard", "Young", "Gray_Hair","Bald", "Pale_Skin"] # Attributes to highlight with arrows in the plots
+# BIAS_ATTRIBUTES = ["No_Beard", "Young", "Gray_Hair","Bald", "Pale_Skin"] # Attributes to highlight with arrows in the plots
+BIAS_ATTRIBUTES = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin", "5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
+
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -413,7 +415,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     return result
 
 
-def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5):
+def show_misclassified_custom(dataset, y_test, y_pred, misclassified_indices, n=5):
     """Visualize misclassified images from gender classification"""
     if len(misclassified_indices) == 0:
         print("No misclassified images to show!")
@@ -426,7 +428,9 @@ def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5
         idx = misclassified_indices[i]
         plt.subplot(1, n, i + 1)
         
-        img = images[idx]
+        # Load image on demand
+        img, _ = dataset[idx] # dataset returns (image, attributes)
+        
         # Denormalize CLIP preprocessing
         mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(3, 1, 1)
         std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(3, 1, 1)
@@ -571,7 +575,7 @@ def main():
     
     # Get CLIP embeddings and labels - Extract features from images
     print(f"\nExtracting CLIP embeddings for {MAX_SAMPLES} samples...")
-    clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES)
+    clip_embeddings, gender_labels = get_labels(dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES)
     
     # Get all embeddings with attributes - Full attribute matrix for bias analysis
     clip_embs_all, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(
@@ -613,7 +617,7 @@ def main():
     if TOGGLE_MISCLASSIFIED_VISUALIZATION and TOGGLE_GENDER_CLASSIFICATION:
         print("\nVisualizing misclassified examples...")
         # Show examples where gender classifier made mistakes
-        show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5)
+        show_misclassified_custom(dataset, y_test, y_pred, misclassified_indices, n=5)
     
     # 6. Male Group Comparison
     if TOGGLE_MALE_GROUP_COMPARISON and TOGGLE_GENDER_CLASSIFICATION:

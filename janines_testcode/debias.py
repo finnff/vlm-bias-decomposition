@@ -35,7 +35,7 @@ def soft_debias(embeddings, bias_basis, lam=1.0):
         return embeddings - alpha * (embeddings @ P.to(embeddings.device))
 
 dataset = load_celeba_dataset(root="./data", split="train", download=False)
-clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=64, max_samples=5000)
+clip_embeddings, gender_labels = get_labels(dataset, batch_size=64, max_samples=5000)
 X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
 y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
 clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
