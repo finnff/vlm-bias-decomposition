@@ -2,7 +2,12 @@ import numpy as np
 import torch
 from clip_utils import get_labels, load_celeba_dataset, get_all_embeddings_and_attrs
 from gender_classification import train_gender_classifier, gender_classifier_accuracy, eval_classifier
-from attribute_bias_analysis import compare_male_groups_ttest
+from attribute_bias_analysis import compare_groups_ttest
+import io
+import sys
+
+
+bias_attribute_names = ["Attractive"]
 
 def hard_debias(embeddings, bias_basis):
     """
@@ -41,43 +46,66 @@ y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
 clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
 
 
-idx_young      = attr_names.index("Young")
-idx_attractive = attr_names.index("Attractive")
-idx_beard      = attr_names.index("No_Beard")
+bias_vectors = []
+for attr in bias_attribute_names:
+    idx = attr_names.index(attr)
+    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+    v = mu_pos - mu_neg
+    v = v.astype(np.float32)
+    v /= np.linalg.norm(v)
+    bias_vectors.append(v)
 
-mu_young_pos      = X[attr_mat[:, idx_young] == 1].mean(axis=0)   #u⁺
-mu_young_neg      = X[attr_mat[:, idx_young] == 0].mean(axis=0)   #u⁻
-mu_attr_pos       = X[attr_mat[:, idx_attractive] == 1].mean(axis=0)
-mu_attr_neg       = X[attr_mat[:, idx_attractive] == 0].mean(axis=0)
-mu_beard_pos      = X[attr_mat[:, idx_beard] == 1].mean(axis=0)   #u⁺
-mu_beard_neg      = X[attr_mat[:, idx_beard] == 0].mean(axis=0)   #u⁻
 
-v_young      = mu_young_pos - mu_young_neg
-v_attractive = mu_attr_pos  - mu_attr_neg
-v_beard = mu_beard_pos - mu_beard_neg
-
-#stupid pythonnn typinngggg
-v_young      = v_young.astype(np.float32)
-v_attractive = v_attractive.astype(np.float32)
-v_beard = v_beard.astype(np.float32)
-
-v_young      /= np.linalg.norm(v_young)
-v_attractive /= np.linalg.norm(v_attractive)
-v_beard /= np.linalg.norm(v_beard)
-
-B = np.stack([v_young, v_attractive, v_beard], axis=1)    #(D, 2)
-Q, _ = np.linalg.qr(B)                           #Q: (D, 2) orthonormal
-bias_basis = Q.T                                 #(2, D)
+B = np.stack(bias_vectors, axis=1)
+Q, _ = np.linalg.qr(B)
+bias_basis = Q.T                              #(2, D)
 
 X_hard_yt = hard_debias(X, bias_basis)
-X_soft_yt = soft_debias(X, bias_basis, lam=3.5)
+X_soft_yt = soft_debias(X, bias_basis, lam=0)
 
 clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_soft_yt, gender_labels)
 
 gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
 eval_classifier(y_test, y_pred)
 
-compare_male_groups_ttest(clf, X_soft_yt, attr_mat, attr_names)
+compare_groups_ttest(clf, clip_embeddings, attr_mat, attr_names, bias_attribute_names)
+
+results = []
+
+for attr in attr_names:
+    # redirect print to capture
+    old_stdout = sys.stdout
+    sys.stdout = mystdout = io.StringIO()
+
+    try:
+        compare_groups_ttest(clf, clip_embeddings, attr_mat, attr_names, [attr])
+        output = mystdout.getvalue()
+        lines = output.strip().split("\n")
+
+        t_line = [line for line in lines if "T-test result" in line]
+        if t_line:
+            t_str = t_line[0]
+            t_val = float(t_str.split("t =")[1].split(",")[0].strip())
+            p_val = float(t_str.split("p =")[1].strip())
+            sig = "*" if p_val < 0.05 else ""
+            output += f"Significant: {sig}\n"
+
+        results.append(output)
+
+    except Exception as e:
+        print(f"Error on attribute {attr}: {e}")
+
+    finally:
+        sys.stdout = old_stdout
+
+# === Print all results at once ===
+print("\n" + "="*60)
+print("T-TEST SUMMARY FOR ALL ATTRIBUTES (p < 0.05 marked with *)")
+print("="*60)
+
+for r in results:
+    print("\n" + r)
 
 """
 base:
