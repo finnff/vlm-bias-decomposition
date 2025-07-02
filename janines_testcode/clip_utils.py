@@ -1,6 +1,6 @@
 import torch
 from torchvision.datasets import CelebA
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import clip
 from tqdm import tqdm
 
@@ -19,17 +19,19 @@ def load_celeba_dataset(root="./data", split="train", download=False):
     return dataset
 
 
-def get_labels(dataset, batch_size=64, max_samples=5000):
+def get_labels(dataset, batch_size=64, max_samples=100000):
     male_idx = dataset.attr_names.index("Male")
-    dataloader = DataLoader(dataset, batch_size=batch_size)
+    
+    # Limit the dataset first to avoid unneeded processing
+    limited_dataset = Subset(dataset, list(range(min(max_samples, len(dataset)))))
+    
+    dataloader = DataLoader(limited_dataset, batch_size=batch_size, num_workers=4, pin_memory=True)
+    
     clip_embeddings = []
     gender_labels = []
-    image_list = []  # store raw PIL images for visualization
+    image_list = []
 
-    for i, (images, attrs) in enumerate(tqdm(dataloader)):
-        if i * batch_size >= max_samples:
-            break
-
+    for images, attrs in tqdm(dataloader, total=len(limited_dataset)//batch_size):
         labels = attrs[:, male_idx].int()
         images = images.to(device)
 
@@ -38,7 +40,9 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
 
         clip_embeddings.append(features)
         gender_labels.append(labels)
-        image_list.extend(images.cpu())  # Store images (normalized tensors)
+        
+        # Optional: Comment this out if you don't really need the images
+        # image_list.extend(images.cpu())
 
     clip_embeddings = torch.cat(clip_embeddings, dim=0)
     gender_labels = torch.cat(gender_labels, dim=0)
@@ -46,36 +50,39 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
     return clip_embeddings, gender_labels, image_list
 
 
-def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=5000):
-    attr_names = dataset.attr_names  
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=100000):
+    attr_names = dataset.attr_names
+    limited_dataset = Subset(dataset, list(range(min(max_samples, len(dataset)))))
+    
+    loader = DataLoader(
+        limited_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
     clip_embs = []
     attr_list = []
     idx_list = []
 
-    total_seen = 0
-    for batch_idx, (images, attrs) in enumerate(tqdm(loader)):
-        if total_seen >= max_samples:
-            break
-
-        current_batch_size = images.size(0)
-        labels = attrs[:, :].int()  # shape [batch, 40]
-
+    for batch_idx, (images, attrs) in enumerate(tqdm(loader, total=len(limited_dataset) // batch_size)):
         images = images.to(device)
+        labels = attrs.int()  # [batch, 40]
+
         with torch.no_grad():
-            feats = model.encode_image(images).cpu()  # [batch,512]
+            feats = model.encode_image(images).cpu()  # [batch, 512]
+
         clip_embs.append(feats)
         attr_list.append(labels)
 
-        # store which dataset indices these came from
+        # dataset indices from Subset are consecutive from 0
         start_idx = batch_idx * batch_size
-        for offset in range(current_batch_size):
-            idx_list.append(start_idx + offset)
+        current_batch_size = images.size(0)
+        idx_list.extend(range(start_idx, start_idx + current_batch_size))
 
-        total_seen += current_batch_size
-
-    clip_embs = torch.cat(clip_embs, dim=0)           # [N,512]
-    attr_mat = torch.cat(attr_list, dim=0).numpy()    # [N,40]
-    idx_list = idx_list[: clip_embs.shape[0]]         # length N
+    clip_embs = torch.cat(clip_embs, dim=0)           # [N, 512]
+    attr_mat = torch.cat(attr_list, dim=0).numpy()    # [N, 40]
+    idx_list = idx_list[:clip_embs.shape[0]]          # Trim just in case
 
     return clip_embs, attr_mat, idx_list, attr_names

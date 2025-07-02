@@ -50,14 +50,3 @@ def compare_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, attribut
     t_stat, p_val = ttest_ind(probs_group1, probs_group2, equal_var=False)
     print(f"T-test result: t = {t_stat:.2f}, p = {p_val:.3e}")
 
-    # Plot
-    plt.figure(figsize=(8, 4))
-    plt.hist(probs_group1, bins=50, alpha=0.6, label="Group 1 (has all)")
-    plt.hist(probs_group2, bins=50, alpha=0.6, label="Group 2 (has none)")
-    plt.legend()
-    plt.title("Predicted P(male) Distribution")
-    plt.xlabel("Predicted Probability")
-    plt.ylabel("Count")
-    plt.tight_layout()
-    plt.savefig("group_comparison_hist.png")
-    plt.close()

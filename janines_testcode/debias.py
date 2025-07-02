@@ -39,12 +39,16 @@ def soft_debias(embeddings, bias_basis, lam=1.0):
     else:
         return embeddings - alpha * (embeddings @ P.to(embeddings.device))
 
+print("0")
 dataset = load_celeba_dataset(root="./data", split="train", download=False)
+print("1")
 clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=64, max_samples=5000)
+print("2")
 X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
 y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
-clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
-
+print("3")
+clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset,max_samples=5000)
+print("4")
 
 bias_vectors = []
 for attr in bias_attribute_names:
@@ -74,7 +78,6 @@ compare_groups_ttest(clf, clip_embeddings, attr_mat, attr_names, bias_attribute_
 results = []
 
 for attr in attr_names:
-    # redirect print to capture
     old_stdout = sys.stdout
     sys.stdout = mystdout = io.StringIO()
 
@@ -99,7 +102,6 @@ for attr in attr_names:
     finally:
         sys.stdout = old_stdout
 
-# === Print all results at once ===
 print("\n" + "="*60)
 print("T-TEST SUMMARY FOR ALL ATTRIBUTES (p < 0.05 marked with *)")
 print("="*60)
@@ -107,131 +109,142 @@ print("="*60)
 for r in results:
     print("\n" + r)
 
-"""
-base:
-Gender classifier training accuracy: 0.9958
-Gender classifier test accuracy:     0.9881
-Classification Report:
-              precision    recall  f1-score   support
-
-      Female       0.99      0.99      0.99       591
-        Male       0.99      0.99      0.99       421
-
-    accuracy                           0.99      1012
-   macro avg       0.99      0.99      0.99      1012
-weighted avg       0.99      0.99      0.99      1012
-
-Confusion Matrix:
-[[585   6]
- [  6 415]]
-
-Average P(male) for Group 1 (female‐associated attributes)  = 0.9847  ± 0.0545
-Average P(male) for Group 2 (none of those attributes)       = 0.9983  ± 0.0091
-
-Two‐sample t‐test: t = -4.29,  p = 2.359e-05
-
-hard:
-
-Gender classifier training accuracy: 0.8687
-Gender classifier test accuracy:     0.8063
-Classification Report:
-              precision    recall  f1-score   support
-
-      Female       0.79      0.91      0.85       591
-        Male       0.83      0.67      0.74       421
-
-    accuracy                           0.81      1012
-   macro avg       0.81      0.79      0.79      1012
-weighted avg       0.81      0.81      0.80      1012
-
-Confusion Matrix:
-[[535  56]
- [140 281]]
-
-Group 1 (male & no_beard & attractive & young):  308 examples
-Group 2 (male & no no_beard & no attractive & no young):  241 examples
-
-Average P(male) for Group 1 (female‐associated attributes)  = 0.9673  ± 0.0842
-Average P(male) for Group 2 (none of those attributes)       = 0.3287  ± 0.2334
-
-Two‐sample t‐test: t = 40.38,  p = 7.689e-121
 
 
-soft lam 5:
 
-Gender classifier training accuracy: 0.9941
-Gender classifier test accuracy:     0.9901
-Classification Report:
-              precision    recall  f1-score   support
+bias_attribute_names_sig = [
+    "5_o_Clock_Shadow", "Bald", "Bangs", "Goatee", "High_Cheekbones",
+    "Mustache", "No_Beard", "Rosy_Cheeks", "Sideburns", "Straight_Hair",
+    "Wearing_Lipstick", "Wearing_Necktie"
+]
 
-      Female       0.99      0.99      0.99       591
-        Male       0.99      0.99      0.99       421
+def find_optimal_lambda(attr, X, attr_mat, clip_embeddings, attr_names, gender_labels, lambdas=np.linspace(0.0, 10.0, 30)):
+    idx = attr_names.index(attr)
+    
+    # Create single bias vector
+    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+    v = mu_pos - mu_neg
+    v = v.astype(np.float32)
+    
+    if np.linalg.norm(v) < 1e-6:
+        return None, None, None, None, "[Skipped: degenerate vector]"
 
-    accuracy                           0.99      1012
-   macro avg       0.99      0.99      0.99      1012
-weighted avg       0.99      0.99      0.99      1012
+    v /= np.linalg.norm(v)
+    B = v.reshape(-1, 1)
+    Q, _ = np.linalg.qr(B)
+    bias_basis = Q.T  # shape [1, D]
 
-Confusion Matrix:
-[[587   4]
- [  6 415]]
+    best_lambda = None
+    best_alpha = None
+    best_t = float("inf")
+    best_p = None
+    best_acc = None
+    best_output = ""
 
-Group 1 (male & no_beard & attractive & young):  308 examples
-Group 2 (male & no no_beard & no attractive & no young):  241 examples
+    for lam in lambdas:
+        alpha = lam / (1.0 + lam)
+        X_soft = soft_debias(X, bias_basis, lam=lam)
 
-Average P(male) for Group 1 (female‐associated attributes)  = 0.9824  ± 0.0490
-Average P(male) for Group 2 (none of those attributes)       = 0.9726  ± 0.0325
+        clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_soft, gender_labels)
+        acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
 
-Two‐sample t‐test: t = 2.81,  p = 5.209e-03
+        old_stdout = sys.stdout
+        sys.stdout = mystdout = io.StringIO()
+        try:
+            compare_groups_ttest(clf, torch.tensor(X_soft), attr_mat, attr_names, [attr])
+            output = mystdout.getvalue()
+            lines = output.strip().split("\n")
+            t_line = [line for line in lines if "T-test result" in line]
+            if t_line:
+                t_val = float(t_line[0].split("t =")[1].split(",")[0].strip())
+                p_val = float(t_line[0].split("p =")[1].strip())
+                if abs(t_val) < abs(best_t):
+                    best_lambda = lam
+                    best_alpha = alpha
+                    best_t = t_val
+                    best_p = p_val
+                    best_acc = acc
+                    best_output = output
+        except Exception as e:
+            print(f"[ERROR] Attr: {attr} λ={lam}: {e}")
+        finally:
+            sys.stdout = old_stdout
 
-soft lam 2:
-
-Gender classifier training accuracy: 0.9955
-Gender classifier test accuracy:     0.9901
-Classification Report:
-              precision    recall  f1-score   support
-
-      Female       0.99      0.99      0.99       591
-        Male       0.99      0.99      0.99       421
-
-    accuracy                           0.99      1012
-   macro avg       0.99      0.99      0.99      1012
-weighted avg       0.99      0.99      0.99      1012
-
-Confusion Matrix:
-[[586   5]
- [  5 416]]
-
-Group 1 (male & no_beard & attractive & young):  308 examples
-Group 2 (male & no no_beard & no attractive & no young):  241 examples
-
-Average P(male) for Group 1 (female‐associated attributes)  = 0.9838  ± 0.0486
-Average P(male) for Group 2 (none of those attributes)       = 0.9915  ± 0.0185
-
-Two‐sample t‐test: t = -2.54,  p = 1.133e-02
+    return best_alpha, best_t, best_p, best_acc, best_output
 
 
-soft lam 3.5:
-Gender classifier training accuracy: 0.9946
-Gender classifier test accuracy:     0.9891
-Classification Report:
-              precision    recall  f1-score   support
+results = []
+for attr in bias_attribute_names_sig:
+    print(f"\n--- Optimizing λ for: {attr} ---")
+    best_alpha, best_t, best_p, best_acc, best_output = find_optimal_lambda(attr, X, attr_mat, clip_embeddings, attr_names, gender_labels)
 
-      Female       0.99      0.99      0.99       591
-        Male       0.99      0.99      0.99       421
+    
+    if best_alpha is not None:
+        results.append(
+    f"Attribute: {attr}\n"
+    f"Best α (λ / (1+λ)): {best_alpha:.3f}\n"
+    f"T-statistic: {best_t:.3f},  p = {best_p:.2e},  Accuracy = {best_acc:.4f}\n\n"
+    f"{best_output}"
+)
+    else:
+        results.append(f"Attribute: {attr}\n[ERROR] No valid λ found\n")
 
-    accuracy                           0.99      1012
-   macro avg       0.99      0.99      0.99      1012
-weighted avg       0.99      0.99      0.99      1012
 
-Confusion Matrix:
-[[586   5]
- [  6 415]]
 
-Group 1 (male & no_beard & attractive & young):  308 examples
-Group 2 (male & no no_beard & no attractive & no young):  241 examples
+print("\n" + "="*60)
+print("TUNED DEBIASING RESULTS FOR BIASED ATTRIBUTES")
+print("="*60)
+for r in results:
+    print("\n" + r)
 
-Average P(male) for Group 1 (female‐associated attributes)  = 0.9831  ± 0.0484
-Average P(male) for Group 2 (none of those attributes)       = 0.9831  ± 0.0255
 
-Two‐sample t‐test: t = 0.01,  p = 9.936e-01
-"""
+
+print("\n HARD DEBIASING")
+
+hard_debias_results = []
+
+for attr in bias_attribute_names_sig:  # your chosen significant attribute list
+    idx = attr_names.index(attr)
+    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+    v = mu_pos - mu_neg
+    v = v.astype(np.float32)
+    v /= np.linalg.norm(v)
+    bias_basis = v[None, :]  # shape (1, D)
+
+    X_hard = hard_debias(X, bias_basis)
+    clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_hard, y)
+    acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
+
+    old_stdout = sys.stdout
+    sys.stdout = mystdout = io.StringIO()
+    try:
+        compare_groups_ttest(clf, torch.tensor(X_hard), attr_mat, attr_names, [attr])
+        output = mystdout.getvalue()
+        lines = output.strip().split("\n")
+
+        t_line = [line for line in lines if "T-test result" in line]
+        t_val, p_val = None, None
+        if t_line:
+            t_str = t_line[0]
+            t_val = float(t_str.split("t =")[1].split(",")[0].strip())
+            p_val = float(t_str.split("p =")[1].strip())
+
+        hard_debias_results.append({
+            "attribute": attr,
+            "accuracy": acc,
+            "t_stat": t_val,
+            "p_val": p_val
+        })
+
+    except Exception as e:
+        print(f"Error with attribute {attr}: {e}")
+    finally:
+        sys.stdout = old_stdout
+
+# Print summary
+print("\n{:<20} | {:<10} | {:<8} | {}".format("Attribute", "Accuracy", "t-stat", "p"))
+print("-" * 60)
+for res in hard_debias_results:
+    print(f"{res['attribute']:<20} | {res['accuracy']:.4f}    | {res['t_stat']:.2f}    | {res['p_val']:.3e}")
