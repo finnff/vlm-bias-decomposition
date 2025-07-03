@@ -29,11 +29,11 @@ from sklearn.manifold import TSNE
 # ==================== CONFIGURATION ====================
 # Feature Flags - Toggle each analysis component
 TOGGLE_GENDER_CLASSIFICATION = True
-TOGGLE_PCA_VISUALIZATION = False 
-TOGGLE_TSNE_VISUALIZATION = False 
+TOGGLE_PCA_VISUALIZATION = True 
+TOGGLE_TSNE_VISUALIZATION = True
 TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
 TOGGLE_MISCLASSIFIED_VISUALIZATION = False 
-TOGGLE_MALE_GROUP_COMPARISON = False 
+TOGGLE_MALE_GROUP_COMPARISON = True 
 TOGGLE_DEBIASING_ANALYSIS = True
 DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias plots
 
@@ -42,6 +42,7 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
+# MAX_SAMPLES = 100000
 MAX_SAMPLES = 100000
 BATCH_SIZE = 512
 
@@ -449,18 +450,25 @@ def show_misclassified_custom(dataset, y_test, y_pred, misclassified_indices, n=
 
 def compare_male_groups_custom(clf, clip_embeddings, attr_matrix, attr_names):
     """Compare classification confidence for male groups with different attributes"""
-    import os
-    import shutil
-    
-    # Call original function (it will print stats to console)
-    compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, figsize=(8, 5), title_fontsize=TITLE_SIZE, label_fontsize=LABEL_SIZE)
-    
-    # The function saves its own plot, move it to our directory
-    source_path = "male_groups_confidence_hist_1.png"
-    if os.path.exists(source_path):
-        dest_path = os.path.join(OUTPUT_DIR, "male_groups_confidence_hist.png")
-        shutil.move(source_path, dest_path)
-        print(f"Saved plot: {dest_path}")
+    # Call the updated t-test function
+    compare_male_groups_ttest(
+        clf,
+        clip_embeddings,
+        attr_matrix,
+        attr_names,
+        figsize=(10, 6),
+        title_fontsize=TITLE_SIZE,
+        label_fontsize=LABEL_SIZE
+    )
+
+    # Move the generated plots to the output directory
+    attributes_to_test = [attr for attr in attr_names if attr != "Male"]
+    for attribute in attributes_to_test:
+        source_path = f"male_groups_confidence_hist_{attribute}.png"
+        if os.path.exists(source_path):
+            dest_path = os.path.join(OUTPUT_DIR, f"male_groups_confidence_hist_{attribute}.png")
+            shutil.move(source_path, dest_path)
+            print(f"Saved and moved plot: {dest_path}")
 
 def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_labels):
     """Analyze the effect of debiasing on gender classification"""
@@ -495,14 +503,22 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
     
     results = {}
     accuracies = {}
+    all_ttest_results = {}
+
     for name, X_version in [("Original", X), ("Hard Debias", X_hard), 
-                            ("Soft Debias(λ={})".format(DEBIAS_LAMBDA), X_soft)]:
+                            ("Soft Debias(" + "\u03bb" + "={})".format(DEBIAS_LAMBDA), X_soft)]:
         print(f"\n{name} Embeddings:")
         clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_version, gender_labels)
         acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
         results[name] = (clf, X_version)
         accuracies[name] = acc
-    
+
+        # Run t-test analysis for each debiasing method
+        ttest_results = compare_male_groups_ttest(clf, X_version, attr_matrix, attr_names, 
+                                    title=f"T-TEST ANALYSIS - {name}", 
+                                    output_prefix=f"{name.replace(' ', '_').lower()}_")
+        all_ttest_results[name] = ttest_results
+
     # Visualize debiasing effect
     fig, axes = plt.subplots(1, 3, figsize=(18, 8) )
     
@@ -548,6 +564,23 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
     plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 6)
     plt.tight_layout(rect=[0, 0, 0.9, 1])
     save_plot("debiasing_comparison.png")
+
+    # Print summary table
+    print("\n" + "="*60)
+    print("DEBIASING T-TEST SUMMARY")
+    print("="*60)
+    
+    header = f"{'Attribute':<20} | {'Original t-stat':<20} | {'Hard Debias t-stat':<20} | {'Soft Debias t-stat':<20} | {'|Δ Hard|':<10} | {'|Δ Soft|':<10}"
+    print(header)
+    print("-"*len(header))
+
+    for attribute in all_ttest_results["Original"].keys():
+        original_t = all_ttest_results["Original"][attribute]['t_stat']
+        hard_t = all_ttest_results["Hard Debias"][attribute]['t_stat']
+        soft_t = all_ttest_results["Soft Debias(" + "\u03bb" + "=3.5)"][attribute]['t_stat']
+        delta_hard = abs(original_t - hard_t)
+        delta_soft = abs(original_t - soft_t)
+        print(f"{attribute:<20} | {original_t:<20.2f} | {hard_t:<20.2f} | {soft_t:<20.2f} | {delta_hard:<10.2f} | {delta_soft:<10.2f}")
     
     return results
 

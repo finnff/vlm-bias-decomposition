@@ -136,144 +136,27 @@ python3 celeba_downloader_clip_test.py  1568.52s user 95.02s system 332% cpu 8:2
 
 
 
-### distinct_prompt_evaluation.py
+## fixed_debias_clip_embeddings.py
 
+This script performs a comprehensive analysis of gender bias in CLIP embeddings and the effectiveness of different debiasing techniques. It can be configured using the feature flags and parameters at the top of the file.
+
+### Configuration
+
+- `TOGGLE_GENDER_CLASSIFICATION`: (True/False) Enable/disable the gender classification analysis.
+- `TOGGLE_PCA_VISUALIZATION`: (True/False) Enable/disable the PCA visualization of embeddings.
+- `TOGGLE_TSNE_VISUALIZATION`: (True/False) Enable/disable the t-SNE visualization of embeddings.
+- `TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS`: (True/False) Enable/disable the analysis of attribute bias directions.
+- `TOGGLE_MISCLASSIFIED_VISUALIZATION`: (True/False) Enable/disable the visualization of misclassified images.
+- `TOGGLE_MALE_GROUP_COMPARISON`: (True/False) Enable/disable the t-test comparison of male groups.
+- `TOGGLE_DEBIASING_ANALYSIS`: (True/False) Enable/disable the debiasing analysis.
+- `MAX_SAMPLES`: (Integer) The number of samples to use from the dataset for the analysis.
+
+### Usage
+
+Run the script from the command line:
+
+```bash
+python fixed_debias_clip_embeddings.py
 ```
 
-Using device: cuda
-Loading CLIP model...
-Loading CelebA dataset...
-Files already downloaded and verified
-✓ Successfully loaded CelebA dataset with 162770 images
-
-Dataset loaded with 162770 images
-Number of attributes: 40
-Attributes: 5_o_Clock_Shadow, Arched_Eyebrows, Attractive, Bags_Under_Eyes, Bald, Bangs, Big_Lips, Big_Nose, Black_Hair, Blond_Hair...
-
-============================================================================
-IMPROVED CLIP ANALYSIS WITH BINARY COMPARISONS
-============================================================================
-
-Running improved CLIP analysis on 100000 images (batch size: 256, num_workers: 16, prefetch_factor: 2)...
-Processing batches: 100%|█████████████████████████████████████████████████████████████████████████████████████| 391/391 [05:20<00:00,  1.22it/s]
-
-Improved CLIP Analysis Results:
-
-Gender Classification Accuracy:
-Male accuracy: 41173/41991 = 98.1%
-Female accuracy: 57749/58009 = 99.6%
-
-Attribute Detection Performance:
-
-Metrics:
-- Avg Score (Has): How confident CLIP is when the attribute is present (higher is better)
-- Avg Score (Has not): How confident CLIP is when attribute is absent (lower is better)
-- Discrimination: Difference between the two (positive = CLIP can detect this attribute)
-
-Attribute            | Avg Score (Has) | Avg Score (Has not) | Discrimination
-----------------------------------------------------------------------------
-male                 |           0.945 |               0.033 |         +0.912
-blond_hair           |           0.917 |               0.264 |         +0.653
-bald                 |           0.658 |               0.063 |         +0.595
-eyeglasses           |           0.785 |               0.214 |         +0.571
-smiling              |           0.604 |               0.159 |         +0.445
-pale_skin            |           0.684 |               0.318 |         +0.366
-bangs                |           0.617 |               0.268 |         +0.349
-young                |           0.759 |               0.414 |         +0.345
-wearing_hat          |           0.778 |               0.474 |         +0.304
-black_hair           |           0.677 |               0.419 |         +0.257
-gray_hair            |           0.489 |               0.278 |         +0.211
-wavy_hair            |           0.647 |               0.459 |         +0.187
-heavy_makeup         |           0.585 |               0.400 |         +0.185
-bushy_eyebrows       |           0.555 |               0.379 |         +0.176
-straight_hair        |           0.915 |               0.763 |         +0.152
-chubby               |           0.574 |               0.438 |         +0.136
-blurry               |           0.367 |               0.233 |         +0.134
-brown_hair           |           0.774 |               0.659 |         +0.115
-mustache             |           0.353 |               0.253 |         +0.100
-wearing_lipstick     |           0.718 |               0.636 |         +0.082
-wearing_necktie      |           0.688 |               0.607 |         +0.082
-wearing_earrings     |           0.712 |               0.635 |         +0.077
-arched_eyebrows      |           0.742 |               0.671 |         +0.071
-double_chin          |           0.669 |               0.605 |         +0.064
-attractive           |           0.345 |               0.286 |         +0.060
-narrow_eyes          |           0.641 |               0.588 |         +0.053
-bags_under_eyes      |           0.573 |               0.554 |         +0.019
-mouth_slightly_open  |           0.580 |               0.562 |         +0.018
-pointy_nose          |           0.291 |               0.283 |         +0.009
-big_lips             |           0.234 |               0.228 |         +0.006
-oval_face            |           0.561 |               0.557 |         +0.004
-big_nose             |           0.307 |               0.306 |         +0.002
-wearing_necklace     |           0.645 |               0.653 |         -0.008
-high_cheekbones      |           0.368 |               0.384 |         -0.015
-receding_hairline    |           0.553 |               0.573 |         -0.020
-sideburns            |           0.510 |               0.547 |         -0.037
-goatee               |           0.453 |               0.521 |         -0.068
-rosy_cheeks          |           0.227 |               0.302 |         -0.075
-no_beard             |           0.742 |               0.838 |         -0.097
-5_o_clock_shadow     |           0.182 |               0.490 |         -0.309
-
-Interesting Cases:
-
-============================================================================
-EMBEDDING SPACE CORRELATION ANALYSIS
-============================================================================
-
-Computing embedding similarities for 100000 images...
-
-CLIP-CelebA Attribute Correlations:
-
-Metrics:
-- Correlation: How well CLIP's similarity scores align with CelebA labels (-1 to +1, higher (absolute) magnitude = better)
-- Mean Sim (WITH): Average cosine similarity (dot product of normalized embeddings) between images WITH the attribute and its text description
-- Mean Sim (WITHOUT): Average cosine similarity between images WITHOUT the attribute and its text description
-- Higher correlation means CLIP understands this attribute; larger gap between WITH/WITHOUT is better
-
-Attribute            |  Correlation | Mean Sim (WITH) |  Mean Sim (WITHOUT)
-----------------------------------------------------------------------------
-Smiling              |        0.640 |           0.241 |               0.220
-Blond_Hair           |        0.554 |           0.252 |               0.222
-Bangs                |        0.519 |           0.238 |               0.211
-No_Beard             |       -0.514 |           0.210 |               0.230
-Heavy_Makeup         |        0.501 |           0.227 |               0.211
-Wearing_Hat          |        0.441 |           0.255 |               0.225
-Black_Hair           |        0.406 |           0.233 |               0.216
-Wavy_Hair            |        0.397 |           0.235 |               0.220
-Goatee               |        0.393 |           0.245 |               0.218
-Eyeglasses           |        0.392 |           0.232 |               0.206
-Wearing_Earrings     |        0.389 |           0.246 |               0.232
-Wearing_Lipstick     |        0.378 |           0.222 |               0.211
-Wearing_Necktie      |        0.339 |           0.240 |               0.222
-Brown_Hair           |        0.337 |           0.245 |               0.231
-Arched_Eyebrows      |        0.295 |           0.250 |               0.240
-Bald                 |        0.290 |           0.245 |               0.210
-Mouth_Slightly_Open  |        0.265 |           0.235 |               0.228
-Receding_Hairline    |        0.243 |           0.246 |               0.229
-Mustache             |        0.232 |           0.230 |               0.213
-Young                |        0.218 |           0.225 |               0.221
-Blurry               |        0.214 |           0.229 |               0.217
-Attractive           |        0.191 |           0.212 |               0.207
-Bushy_Eyebrows       |        0.187 |           0.242 |               0.235
-Pale_Skin            |        0.177 |           0.226 |               0.211
-Gray_Hair            |        0.167 |           0.234 |               0.221
-Straight_Hair        |        0.128 |           0.230 |               0.224
-Oval_Face            |        0.111 |           0.242 |               0.240
-Wearing_Necklace     |        0.105 |           0.233 |               0.229
-5_o_Clock_Shadow     |        0.102 |           0.224 |               0.221
-Sideburns            |        0.086 |           0.230 |               0.225
-Big_Lips             |        0.078 |           0.222 |               0.220
-Bags_Under_Eyes      |       -0.076 |           0.233 |               0.235
-Pointy_Nose          |        0.069 |           0.230 |               0.228
-Chubby               |        0.054 |           0.210 |               0.206
-High_Cheekbones      |       -0.025 |           0.212 |               0.214
-Big_Nose             |       -0.022 |           0.226 |               0.227
-Double_Chin          |        0.021 |           0.214 |               0.212
-Male                 |       -0.012 |           0.224 |               0.224
-Narrow_Eyes          |        0.005 |           0.227 |               0.227
-Rosy_Cheeks          |        0.005 |           0.220 |               0.220
-
-Saving analysis results...
-Analysis complete! Results saved to 'clip_celeba_improved_results.json'
-
-python3 distinct_prompt_evaluation.py  1087.39s user 164.20s system 216% cpu 9:38.30 total
-```
+The script will perform the enabled analyses and save the results to the `result_imgs_100k` directory.

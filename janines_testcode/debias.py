@@ -34,57 +34,58 @@ def soft_debias(embeddings, bias_basis, lam=1.0):
     else:
         return embeddings - alpha * (embeddings @ P.to(embeddings.device))
 
-dataset = load_celeba_dataset(root="./data", split="train", download=False)
-clip_embeddings, gender_labels = get_labels(dataset, batch_size=64, max_samples=5000)
-X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
-y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
-clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
+if __name__ == "__main__":
+    dataset = load_celeba_dataset(root="./data", split="train", download=False)
+    clip_embeddings, gender_labels = get_labels(dataset, batch_size=64, max_samples=5000)
+    X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
+    y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
+    clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
 
 
-idx_young      = attr_names.index("Young")
-idx_attractive = attr_names.index("Attractive")
-idx_beard      = attr_names.index("No_Beard")
-temp           = attr_names.index("No_Beard")
+    idx_young      = attr_names.index("Young")
+    idx_attractive = attr_names.index("Attractive")
+    idx_beard      = attr_names.index("No_Beard")
+    temp           = attr_names.index("No_Beard")
 
-mu_young_pos      = X[attr_mat[:, idx_young] == 1].mean(axis=0)   #u⁺
-mu_young_neg      = X[attr_mat[:, idx_young] == 0].mean(axis=0)   #u⁻
-mu_attr_pos       = X[attr_mat[:, idx_attractive] == 1].mean(axis=0)
-mu_attr_neg       = X[attr_mat[:, idx_attractive] == 0].mean(axis=0)
-mu_beard_pos      = X[attr_mat[:, idx_beard] == 1].mean(axis=0)   #u⁺
-mu_beard_neg      = X[attr_mat[:, idx_beard] == 0].mean(axis=0)   #u⁻
-mu_temp_pos      = X[attr_mat[:, temp] == 1].mean(axis=0)   #u⁺
-mu_temp_neg      = X[attr_mat[:, temp] == 0].mean(axis=0)   #u⁻
+    mu_young_pos      = X[attr_mat[:, idx_young] == 1].mean(axis=0)   #u⁺
+    mu_young_neg      = X[attr_mat[:, idx_young] == 0].mean(axis=0)   #u⁻
+    mu_attr_pos       = X[attr_mat[:, idx_attractive] == 1].mean(axis=0)
+    mu_attr_neg       = X[attr_mat[:, idx_attractive] == 0].mean(axis=0)
+    mu_beard_pos      = X[attr_mat[:, idx_beard] == 1].mean(axis=0)   #u⁺
+    mu_beard_neg      = X[attr_mat[:, idx_beard] == 0].mean(axis=0)   #u⁻
+    mu_temp_pos      = X[attr_mat[:, temp] == 1].mean(axis=0)   #u⁺
+    mu_temp_neg      = X[attr_mat[:, temp] == 0].mean(axis=0)   #u⁻
 
-v_young      = mu_young_pos - mu_young_neg
-v_attractive = mu_attr_pos  - mu_attr_neg
-v_beard = mu_beard_pos - mu_beard_neg
-v_temp = mu_temp_pos - mu_temp_neg
+    v_young      = mu_young_pos - mu_young_neg
+    v_attractive = mu_attr_pos  - mu_attr_neg
+    v_beard = mu_beard_pos - mu_beard_neg
+    v_temp = mu_temp_pos - mu_temp_neg
 
-#stupid pythonnn typinngggg
-v_young      = v_young.astype(np.float32)
-v_attractive = v_attractive.astype(np.float32)
-v_beard = v_beard.astype(np.float32)
-v_temp = v_temp.astype(np.float32)
+    #stupid pythonnn typinngggg
+    v_young      = v_young.astype(np.float32)
+    v_attractive = v_attractive.astype(np.float32)
+    v_beard = v_beard.astype(np.float32)
+    v_temp = v_temp.astype(np.float32)
 
-v_young      /= np.linalg.norm(v_young)
-v_attractive /= np.linalg.norm(v_attractive)
-v_beard /= np.linalg.norm(v_beard)
-v_temp /= np.linalg.norm(v_temp)
+    v_young      /= np.linalg.norm(v_young)
+    v_attractive /= np.linalg.norm(v_attractive)
+    v_beard /= np.linalg.norm(v_beard)
+    v_temp /= np.linalg.norm(v_temp)
 
-#B = np.stack([v_young, v_attractive, v_beard], axis=1)    #(D, 3) D = direction\
-B = np.stack([v_beard,v_young,v_attractive], axis=1)
-Q, _ = np.linalg.qr(B)                           #Q: (D, 3) orthonormal
-bias_basis = Q.T                                 #(3, D)
+    #B = np.stack([v_young, v_attractive, v_beard], axis=1)    #(D, 3) D = direction\
+    B = np.stack([v_beard,v_young,v_attractive], axis=1)
+    Q, _ = np.linalg.qr(B)                           #Q: (D, 3) orthonormal
+    bias_basis = Q.T                                 #(3, D)
 
-X_hard_yt = hard_debias(X, bias_basis)
-X_soft_yt = soft_debias(X, bias_basis, lam=3.5)
+#X_hard_yt = hard_debias(X, bias_basis)
+#X_soft_yt = soft_debias(X, bias_basis, lam=3.5)
 
-clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_soft_yt, gender_labels)
+#clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_soft_yt, gender_labels)
 
-gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
-eval_classifier(y_test, y_pred)
+#gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
+#eval_classifier(y_test, y_pred)
 
-compare_male_groups_ttest(clf, X_soft_yt, attr_mat, attr_names)
+#compare_male_groups_ttest(clf, X_soft_yt, attr_mat, attr_names)
 
 
 """
