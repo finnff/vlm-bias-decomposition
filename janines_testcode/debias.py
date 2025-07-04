@@ -1,250 +1,161 @@
 import numpy as np
-import torch
+import torch, gc
 from clip_utils import get_labels, load_celeba_dataset, get_all_embeddings_and_attrs
-from gender_classification import train_gender_classifier, gender_classifier_accuracy, eval_classifier
+from sklearn.linear_model import SGDClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 from attribute_bias_analysis import compare_groups_ttest
-import io
-import sys
+import io, sys
+from scipy.stats import ttest_ind
 
-
-bias_attribute_names = ["Attractive"]
-
-def hard_debias(embeddings, bias_basis):
-    """
-    Remove the enitre component / embeddings
-
-    subtract full projection P=BB^T
-    """
-    B = bias_basis.T  #D, k
-    P = B @ B.T       #D, D projection onto bias space
-    if isinstance(embeddings, np.ndarray):
-        return embeddings - embeddings @ P
-    else:
-        return embeddings - embeddings @ P.to(embeddings.device)
-
-
-def soft_debias(embeddings, bias_basis, lam=1.0):
-    """
-    making projection smaller of biased vectors.
-
-    math:
-    min_{x'} ||x-x'||^2+lam * ||Proj_B(x')||^2
-
-    """
-    B = bias_basis.T        #D, k
-    P = B @ B.T             #D, D
-    alpha = lam / (1.0 + lam)  #how much smaller param
-    if isinstance(embeddings, np.ndarray):
-        return embeddings - alpha * (embeddings @ P)
-    else:
-        return embeddings - alpha * (embeddings @ P.to(embeddings.device))
-
-print("0")
+# -- 1) Load embeddings & attrs
 dataset = load_celeba_dataset(root="./data", split="train", download=False)
-print("1")
-clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=64, max_samples=5000)
-print("2")
-X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
-y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
-print("3")
-clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset,max_samples=5000)
-print("4")
+clip_embs, gender_labels, _ = get_labels(dataset, batch_size=64, max_samples=100000)
+X = clip_embs.cpu().numpy().astype(np.float32)
+y = gender_labels.cpu().numpy()
+_, attr_mat, _, attr_names = get_all_embeddings_and_attrs(dataset, max_samples=100000)
+attr_mat = attr_mat.astype(bool)
 
-bias_vectors = []
-for attr in bias_attribute_names:
-    idx = attr_names.index(attr)
-    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
-    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
-    v = mu_pos - mu_neg
-    v = v.astype(np.float32)
-    v /= np.linalg.norm(v)
-    bias_vectors.append(v)
+male_idx = attr_names.index("Male")
+mask_male = attr_mat[:, male_idx]
 
-
-B = np.stack(bias_vectors, axis=1)
-Q, _ = np.linalg.qr(B)
-bias_basis = Q.T                              #(2, D)
-
-X_hard_yt = hard_debias(X, bias_basis)
-X_soft_yt = soft_debias(X, bias_basis, lam=0)
-
-clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = train_gender_classifier(X_soft_yt, gender_labels)
-
-gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
-eval_classifier(y_test, y_pred)
-
-compare_groups_ttest(clf, clip_embeddings, attr_mat, attr_names, bias_attribute_names)
-
-results = []
-
-for attr in attr_names:
-    old_stdout = sys.stdout
-    sys.stdout = mystdout = io.StringIO()
-
-    try:
-        compare_groups_ttest(clf, clip_embeddings, attr_mat, attr_names, [attr])
-        output = mystdout.getvalue()
-        lines = output.strip().split("\n")
-
-        t_line = [line for line in lines if "T-test result" in line]
-        if t_line:
-            t_str = t_line[0]
-            t_val = float(t_str.split("t =")[1].split(",")[0].strip())
-            p_val = float(t_str.split("p =")[1].strip())
-            sig = "*" if p_val < 0.05 else ""
-            output += f"Significant: {sig}\n"
-
-        results.append(output)
-
-    except Exception as e:
-        print(f"Error on attribute {attr}: {e}")
-
-    finally:
-        sys.stdout = old_stdout
-
-print("\n" + "="*60)
-print("T-TEST SUMMARY FOR ALL ATTRIBUTES (p < 0.05 marked with *)")
-print("="*60)
-
-for r in results:
-    print("\n" + r)
-
-
-
-
-bias_attribute_names_sig = [
-    "5_o_Clock_Shadow", "Bald", "Bangs", "Goatee", "High_Cheekbones",
-    "Mustache", "No_Beard", "Rosy_Cheeks", "Sideburns", "Straight_Hair",
-    "Wearing_Lipstick", "Wearing_Necktie"
-]
-
-def find_optimal_lambda(attr, X, attr_mat, clip_embeddings, attr_names, gender_labels, lambdas=np.linspace(0.0, 10.0, 30)):
-    idx = attr_names.index(attr)
-    
-    # Create single bias vector
-    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
-    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
-    v = mu_pos - mu_neg
-    v = v.astype(np.float32)
-    
-    if np.linalg.norm(v) < 1e-6:
-        return None, None, None, None, "[Skipped: degenerate vector]"
-
-    v /= np.linalg.norm(v)
-    B = v.reshape(-1, 1)
-    Q, _ = np.linalg.qr(B)
-    bias_basis = Q.T  # shape [1, D]
-
-    best_lambda = None
-    best_alpha = None
-    best_t = float("inf")
-    best_p = None
-    best_acc = None
-    best_output = ""
-
-    for lam in lambdas:
-        alpha = lam / (1.0 + lam)
-        X_soft = soft_debias(X, bias_basis, lam=lam)
-
-        clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_soft, gender_labels)
-        acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
-
-        old_stdout = sys.stdout
-        sys.stdout = mystdout = io.StringIO()
-        try:
-            compare_groups_ttest(clf, torch.tensor(X_soft), attr_mat, attr_names, [attr])
-            output = mystdout.getvalue()
-            lines = output.strip().split("\n")
-            t_line = [line for line in lines if "T-test result" in line]
-            if t_line:
-                t_val = float(t_line[0].split("t =")[1].split(",")[0].strip())
-                p_val = float(t_line[0].split("p =")[1].strip())
-                if abs(t_val) < abs(best_t):
-                    best_lambda = lam
-                    best_alpha = alpha
-                    best_t = t_val
-                    best_p = p_val
-                    best_acc = acc
-                    best_output = output
-        except Exception as e:
-            print(f"[ERROR] Attr: {attr} λ={lam}: {e}")
-        finally:
-            sys.stdout = old_stdout
-
-    return best_alpha, best_t, best_p, best_acc, best_output
-
-
-results = []
-for attr in bias_attribute_names_sig:
-    print(f"\n--- Optimizing λ for: {attr} ---")
-    best_alpha, best_t, best_p, best_acc, best_output = find_optimal_lambda(attr, X, attr_mat, clip_embeddings, attr_names, gender_labels)
-
-    
-    if best_alpha is not None:
-        results.append(
-    f"Attribute: {attr}\n"
-    f"Best α (λ / (1+λ)): {best_alpha:.3f}\n"
-    f"T-statistic: {best_t:.3f},  p = {best_p:.2e},  Accuracy = {best_acc:.4f}\n\n"
-    f"{best_output}"
+# -- 2) Pre-split once
+indices = np.arange(len(X))
+train_idx, test_idx = train_test_split(
+    indices,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
 )
-    else:
-        results.append(f"Attribute: {attr}\n[ERROR] No valid λ found\n")
+X_tr_base, X_te_base = X[train_idx], X[test_idx]
+y_tr_base, y_te_base = y[train_idx], y[test_idx]
+
+# -- 3) Fast sklearn SGD trainer
+def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter=5):
+    clf = SGDClassifier(loss="log_loss", max_iter=max_iter, tol=1e-3, random_state=0)
+    clf.fit(X_tr, y_tr)
+    acc = accuracy_score(y_te, clf.predict(X_te))
+    return clf, acc
+
+
+#computing these takes ~20 min for me
+best_alphas = {
+    "5_o_Clock_Shadow":    0.903,
+    "Arched_Eyebrows":     0.874,
+    "Attractive":          0.020,
+    "Bags_Under_Eyes":     0.895,
+    "Bald":                0.810,
+    "Bangs":               0.989,
+    "Big_Lips":            0.984,
+    "Big_Nose":            0.874,
+    "Black_Hair":          0.231,
+    "Blond_Hair":          0.990,
+    "Blurry":              0.025,
+    "Brown_Hair":          0.139,
+    "Bushy_Eyebrows":      0.879,
+    "Chubby":              0.816,
+    "Double_Chin":         0.857,
+    "Eyeglasses":          0.037,
+    "Goatee":              0.854,
+    "Gray_Hair":           0.820,
+    "Heavy_Makeup":        0.234,
+    "High_Cheekbones":     0.003,
+    "Mouth_Slightly_Open": 0.743,
+    "Mustache":            0.845,
+    "Narrow_Eyes":         0.963,
+    "No_Beard":            0.900,
+    "Oval_Face":           0.047,
+    "Pale_Skin":           0.946,
+    "Pointy_Nose":         0.042,
+    "Receding_Hairline":   0.492,
+    "Rosy_Cheeks":         0.144,
+    "Sideburns":           0.847,
+    "Smiling":             0.049,
+    "Straight_Hair":       0.988,
+    "Wavy_Hair":           0.874,
+    "Wearing_Earrings":    0.266,
+    "Wearing_Hat":         0.051,
+    "Wearing_Lipstick":    0.235,
+    "Wearing_Necklace":    0.378,
+    "Wearing_Necktie":     0.879,
+    "Young":               0.844
+}
 
 
 
-print("\n" + "="*60)
-print("TUNED DEBIASING RESULTS FOR BIASED ATTRIBUTES")
-print("="*60)
-for r in results:
-    print("\n" + r)
+# -- 5) Hard & soft debias helper
+def hard_debias(X, bias_basis):
+    P = bias_basis.T @ bias_basis  # (D, D)
+    return X - X @ P
 
+def soft_debias(X, bias_basis, alpha):
+    P = bias_basis.T @ bias_basis
+    return X - alpha * (X @ P)
 
+# -- 6) Baseline: report base test acc & t-test
+print("Baseline classifier on original embeddings:")
+clf_base, base_acc = train_gender_classifier_fast(X_tr_base, y_tr_base, X_te_base, y_te_base, max_iter=10)
+print(f"  Test Accuracy: {base_acc:.4f}")
 
-print("\n HARD DEBIASING")
-
-hard_debias_results = []
-
-for attr in bias_attribute_names_sig:  # your chosen significant attribute list
+print("\nBaseline bias t-test for each attribute:")
+for attr in best_alphas:
     idx = attr_names.index(attr)
-    mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
-    mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
-    v = mu_pos - mu_neg
-    v = v.astype(np.float32)
-    v /= np.linalg.norm(v)
-    bias_basis = v[None, :]  # shape (1, D)
+    mask1 = mask_male & attr_mat[:, idx]
+    mask2 = mask_male & ~attr_mat[:, idx]
 
-    X_hard = hard_debias(X, bias_basis)
-    clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_hard, y)
-    acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
+    probs = clf_base.predict_proba(X)[:,1]
+    t, p = ttest_ind(probs[mask1], probs[mask2], equal_var=False)
+    print(f"{attr:25s}  t = {t:.2f}, p = {p:.3e}")
 
-    old_stdout = sys.stdout
-    sys.stdout = mystdout = io.StringIO()
-    try:
-        compare_groups_ttest(clf, torch.tensor(X_hard), attr_mat, attr_names, [attr])
-        output = mystdout.getvalue()
-        lines = output.strip().split("\n")
+# -- 7) Soft debias results
+print("\nSoft‐Debiasing Results:")
+soft_results = []
+for attr, alpha in best_alphas.items():
+    idx = attr_names.index(attr)
+    pos = attr_mat[:, idx]
+    mu_pos = X[pos].mean(0)
+    mu_neg = X[~pos].mean(0)
+    v = (mu_pos - mu_neg).astype(np.float32)
+    v /= np.linalg.norm(v) + 1e-12
+    basis = v.reshape(1, -1)
 
-        t_line = [line for line in lines if "T-test result" in line]
-        t_val, p_val = None, None
-        if t_line:
-            t_str = t_line[0]
-            t_val = float(t_str.split("t =")[1].split(",")[0].strip())
-            p_val = float(t_str.split("p =")[1].strip())
+    X_soft = soft_debias(X, basis, alpha)
+    # split
+    X_tr, X_te = X_soft[train_idx], X_soft[test_idx]
 
-        hard_debias_results.append({
-            "attribute": attr,
-            "accuracy": acc,
-            "t_stat": t_val,
-            "p_val": p_val
-        })
+    clf, acc = train_gender_classifier_fast(X_tr, y_tr_base, X_te, y_te_base, max_iter=5)
+    probs = clf.predict_proba(X_soft)[:,1]
+    t, p = ttest_ind(probs[mask_male & pos], probs[mask_male & ~pos], equal_var=False)
 
-    except Exception as e:
-        print(f"Error with attribute {attr}: {e}")
-    finally:
-        sys.stdout = old_stdout
+    soft_results.append((attr, alpha, acc, t, p))
+    print(f"{attr:25s} α={alpha:.3f}  Acc={acc:.3f}  t={t:.2f}  p={p:.3e}")
 
-# Print summary
-print("\n{:<20} | {:<10} | {:<8} | {}".format("Attribute", "Accuracy", "t-stat", "p"))
-print("-" * 60)
-for res in hard_debias_results:
-    print(f"{res['attribute']:<20} | {res['accuracy']:.4f}    | {res['t_stat']:.2f}    | {res['p_val']:.3e}")
+    del clf, X_soft, probs
+    gc.collect()
+    if torch.cuda.is_available(): torch.cuda.empty_cache()
+
+# -- 8) Hard debias results
+print("\nHard‐Debiasing Results:")
+hard_results = []
+for attr, alpha in best_alphas.items():
+    idx = attr_names.index(attr)
+    pos = attr_mat[:, idx]
+    mu_pos = X[pos].mean(0)
+    mu_neg = X[~pos].mean(0)
+    v = (mu_pos - mu_neg).astype(np.float32)
+    v /= np.linalg.norm(v) + 1e-12
+    basis = v.reshape(1, -1)
+
+    X_hard = hard_debias(X, basis)
+    X_tr, X_te = X_hard[train_idx], X_hard[test_idx]
+
+    clf, acc = train_gender_classifier_fast(X_tr, y_tr_base, X_te, y_te_base, max_iter=5)
+    probs = clf.predict_proba(X_hard)[:,1]
+    t, p = ttest_ind(probs[mask_male & pos], probs[mask_male & ~pos], equal_var=False)
+
+    hard_results.append((attr, acc, t, p))
+    print(f"{attr:25s} Acc={acc:.3f}  t={t:.2f}  p={p:.3e}")
+
+    del clf, X_hard, probs
+    gc.collect()
+    if torch.cuda.is_available(): torch.cuda.empty_cache()
