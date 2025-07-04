@@ -6,6 +6,7 @@ import torch
 import matplotlib
 matplotlib.use('Agg')  # Prevent matplotlib from trying to display plots
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from adjustText import adjust_text
@@ -24,18 +25,21 @@ from debias import hard_debias, soft_debias
 # Additional imports for customization
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from scipy.stats import ttest_ind
 
 
 # ==================== CONFIGURATION ====================
 # Feature Flags - Toggle each analysis component
 TOGGLE_GENDER_CLASSIFICATION = True
-TOGGLE_PCA_VISUALIZATION = True 
-TOGGLE_TSNE_VISUALIZATION = True
-TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
+TOGGLE_PCA_VISUALIZATION = False
+TOGGLE_TSNE_VISUALIZATION = False
+TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = False
 TOGGLE_MISCLASSIFIED_VISUALIZATION = False 
-TOGGLE_MALE_GROUP_COMPARISON = True 
+TOGGLE_MALE_GROUP_COMPARISON = True
 TOGGLE_DEBIASING_ANALYSIS = True
-DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias plots
+TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION = True
+TOGGLE_TTEST_PRINTS = False 
+DISPLAY_NEGATIVE_CENTROIDS = True # Show negative centroids in attribute bias plots
 
 
 
@@ -43,7 +47,7 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
 # MAX_SAMPLES = 100000
-MAX_SAMPLES = 100000
+MAX_SAMPLES = 20000
 BATCH_SIZE = 512
 
 # Output Configuration
@@ -76,7 +80,7 @@ BIAS_TEXT_SIZE = 10
 DEBIAS_LAMBDA = 3.5  # For soft debiasing
 # BIAS_ATTRIBUTES = ["Wearing_Necklace", "Rosy_Cheeks", "Goatee", "Wearing_Lipstick",  "No_Beard"]  # Attributes to debias
 # BIAS_ATTRIBUTES = ["No_Beard", "Young", "Gray_Hair","Bald", "Pale_Skin"] # Attributes to highlight with arrows in the plots
-BIAS_ATTRIBUTES = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin", "5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
+BIAS_ATTRIBUTES = ["5_o_Clock_Shadow", "Attractive", "Bags_Under_Eyes", "Bald", "Bangs", "Big_Lips", "Big_Nose", "Black_Hair", "Blond_Hair", "Blurry", "Bushy_Eyebrows", "Chubby", "Double_Chin", "Goatee", "Gray_Hair", "Heavy_Makeup", "High_Cheekbones", "Mustache", "No_Beard", "Oval_Face", "Pale_Skin", "Pointy_Nose", "Sideburns", "Smiling", "Straight_Hair", "Wavy_Hair", "Wearing_Earrings", "Wearing_Hat", "Wearing_Lipstick", "Wearing_Necklace", "Wearing_Necktie", "Young"]
 
 
 
@@ -458,7 +462,7 @@ def compare_male_groups_custom(clf, clip_embeddings, attr_matrix, attr_names):
         attr_names,
         figsize=(10, 6),
         title_fontsize=TITLE_SIZE,
-        label_fontsize=LABEL_SIZE
+        label_fontsize=LABEL_SIZE, TOGGLE_TTEST_PRINTS=TOGGLE_TTEST_PRINTS
     )
 
     # Move the generated plots to the output directory
@@ -470,33 +474,181 @@ def compare_male_groups_custom(clf, clip_embeddings, attr_matrix, attr_names):
             shutil.move(source_path, dest_path)
             print(f"Saved and moved plot: {dest_path}")
 
+def find_optimal_alpha(attribute, X, attr_mat, attr_names, gender_labels, alphas=np.linspace(0.0, 1.0, 20)):
+    """Find the optimal alpha for a single attribute that minimizes the t-statistic."""
+    idx = attr_names.index(attribute)
+    
+    mask_pos = (attr_mat[:, idx] == 1)
+    mask_neg = (attr_mat[:, idx] == 0)
+
+    if np.sum(mask_pos) < 2 or np.sum(mask_neg) < 2:
+        return None, float('inf')
+
+    mu_pos = X[mask_pos].mean(axis=0)
+    mu_neg = X[mask_neg].mean(axis=0)
+    v = mu_pos - mu_neg
+    v = v.astype(np.float32)
+    
+    if np.linalg.norm(v) < 1e-6:
+        return None, float('inf')
+
+    v /= np.linalg.norm(v)
+    B = v.reshape(-1, 1)
+    Q, _ = np.linalg.qr(B)
+    bias_basis = Q.T
+
+    best_alpha = None
+    best_t = float("inf")
+
+    for alpha in alphas:
+    # for alpha in [0.78]:
+        print(f"Testing alpha={alpha:.2f} for attribute '{attribute}'")
+        X_soft = soft_debias(X, bias_basis, alpha=alpha)
+
+        if np.isnan(X_soft).any():
+            continue
+
+        clf, _, _, _, _, _, _ = train_gender_classifier(X_soft, gender_labels)
+        
+        male_idx = attr_names.index("Male")
+        male_mask = (attr_mat[:, male_idx] == 1)
+        mask_group1 = male_mask & (attr_mat[:, idx] == 1)
+        mask_group2 = male_mask & (attr_mat[:, idx] == 0)
+        
+        X_group1 = X_soft[mask_group1]
+        X_group2 = X_soft[mask_group2]
+
+        if len(X_group1) < 2 or len(X_group2) < 2:
+            continue
+
+        probs_group1 = clf.predict_proba(X_group1)[:, 1]
+        probs_group2 = clf.predict_proba(X_group2)[:, 1]
+        
+        t_stat, _ = ttest_ind(probs_group1, probs_group2, equal_var=False)
+
+        if abs(t_stat) < abs(best_t):
+            best_t = t_stat
+            best_alpha = alpha
+
+    return best_alpha, best_t
+
+def apply_individual_debiasing_alpha_qr(X, optimal_alphas, attr_mat, attr_names):
+    """
+    Apply individual debiasing using QR-decomposed orthogonal basis,
+    consistent with the soft debiasing approach.
+    """
+    # Collect bias vectors for attributes with optimal alphas
+    bias_directions = []
+    alpha_values = []
+    
+    for attribute, alpha in optimal_alphas.items():
+        if alpha is None or alpha == 0.0:
+            continue
+            
+        idx = attr_names.index(attribute)
+        mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+        mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+        v = mu_pos - mu_neg
+        v = v.astype(np.float32)
+        
+        norm = np.linalg.norm(v)
+        if norm < 1e-6:
+            continue
+        v /= norm
+        
+        bias_directions.append(v)
+        alpha_values.append(alpha)
+    
+    if not bias_directions:
+        return X
+    
+    # Apply QR decomposition (same as soft debiasing)
+    B = np.stack(bias_directions, axis=1)
+    Q, _ = np.linalg.qr(B)
+    bias_basis = Q.T
+    
+    # Use average alpha with orthogonal basis
+    avg_alpha = np.mean(alpha_values)
+    
+    # Apply debiasing using orthogonal basis (same as soft_debias)
+    return soft_debias(X, bias_basis, alpha=avg_alpha)
+
+def apply_individual_debiasing_alpha_non_qr(X, optimal_alphas, attr_mat, attr_names):
+    """
+    Apply individual debiasing by summing non-orthogonal rank-1 projections in parallel.
+    """
+    total_projection = np.zeros_like(X)
+    for attribute, alpha in optimal_alphas.items():
+        if alpha is None or alpha == 0.0:
+            continue
+            
+        idx = attr_names.index(attribute)
+        mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+        mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+        v = mu_pos - mu_neg
+        v = v.astype(np.float32)
+        
+        norm = np.linalg.norm(v)
+        if norm < 1e-6:
+            continue
+        v /= norm
+        
+        # Calculate individual projection and add to total
+        total_projection += alpha * (X @ v.reshape(-1, 1)) * v
+
+    return X - total_projection
+
+def apply_soft_debias_with_qr_combined_basis(X, attributes_to_combine, attr_mat, attr_names, alpha):
+    bias_directions = []
+    for attr in attributes_to_combine:
+        idx = attr_names.index(attr)
+        mu_pos = X[attr_mat[:, idx] == 1].mean(axis=0)
+        mu_neg = X[attr_mat[:, idx] == 0].mean(axis=0)
+        v = mu_pos - mu_neg
+        v = v.astype(np.float32)
+        if np.linalg.norm(v) > 1e-6:
+            v /= np.linalg.norm(v)
+            bias_directions.append(v)
+    
+    if not bias_directions:
+        return X.copy() # No bias directions to combine
+
+    B = np.stack(bias_directions, axis=1)
+    Q, _ = np.linalg.qr(B)
+    bias_basis = Q.T
+    
+    return soft_debias(X, bias_basis, alpha=alpha)
+
+
 def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_labels):
     """Analyze the effect of debiasing on gender classification"""
     X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
     
-    # Find bias attribute indices
-    bias_indices = [attr_names.index(attr) for attr in BIAS_ATTRIBUTES]
-    
-    # Compute bias directions
+    # --- Global Debiasing Setup ---
+    bias_indices = [attr_names.index(attr) for attr in BIAS_ATTRIBUTES if attr in attr_names]
     bias_directions = []
     for idx in bias_indices:
         mu_pos = X[attr_matrix[:, idx] == 1].mean(axis=0)
         mu_neg = X[attr_matrix[:, idx] == 0].mean(axis=0)
         v = mu_pos - mu_neg
         v = v.astype(np.float32)
-        v /= np.linalg.norm(v)
-        bias_directions.append(v)
+        if np.linalg.norm(v) > 1e-6:
+            v /= np.linalg.norm(v)
+            bias_directions.append(v)
     
-    # Create bias basis
     B = np.stack(bias_directions, axis=1)
     Q, _ = np.linalg.qr(B)
     bias_basis = Q.T
     
-    # Apply debiasing
     X_hard = hard_debias(X, bias_basis)
-    X_soft = soft_debias(X, bias_basis, lam=DEBIAS_LAMBDA)
+    # For global soft debias, we still need to calculate an alpha from the DEBIAS_LAMBDA
+    global_alpha = DEBIAS_LAMBDA / (1.0 + DEBIAS_LAMBDA)
+    X_soft = soft_debias(X, bias_basis, alpha=global_alpha)
+
+    # New: Soft Debias using QR Combined Basis (for comparison)
+    X_soft_qr_combined = apply_soft_debias_with_qr_combined_basis(X, BIAS_ATTRIBUTES, attr_matrix, attr_names, global_alpha)
     
-    # Train classifiers on each version
+    # --- Analysis Setup ---
     print("\n" + "="*60)
     print("DEBIASING ANALYSIS")
     print("="*60)
@@ -504,85 +656,149 @@ def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_
     results = {}
     accuracies = {}
     all_ttest_results = {}
+    optimal_alphas = {} # Initialize here to be in scope for the summary table
+    
+    # --- Initial T-Test to Find Biased Attributes ---
+    clf_orig, _, _, _, _, _, _ = train_gender_classifier(X, gender_labels)
+    initial_ttest_results = compare_male_groups_ttest(clf_orig, X, attr_matrix, attr_names, title="INITIAL T-TEST ANALYSIS")
+    all_ttest_results["Original"] = initial_ttest_results
+    
+    # Bonferroni correction for significance
+    significant_attributes = [attr for attr, res in initial_ttest_results.items() if res['p_val'] < (0.05 / len(initial_ttest_results))]
+    
+    # --- Individual Debiasing (Optional) ---
+    X_individual = None
+    if TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION:
+        print("\n" + "="*60)
+        print("INDIVIDUAL DEBIASING OPTIMIZATION")
+        print(f"Found {len(significant_attributes)} significantly biased attributes for optimization.")
+        print("="*60)
+        
+        alpha_candidates = np.linspace(0.0, 1.0, 20)
 
-    for name, X_version in [("Original", X), ("Hard Debias", X_hard), 
-                            ("Soft Debias(" + "\u03bb" + "={})".format(DEBIAS_LAMBDA), X_soft)]:
-        print(f"\n{name} Embeddings:")
+        for attr in significant_attributes:
+            original_t_stat = initial_ttest_results[attr]['t_stat']
+            alpha, best_t = find_optimal_alpha(attr, X, attr_matrix, attr_names, gender_labels, alphas=alpha_candidates)
+            
+            if alpha is not None and abs(best_t) < abs(original_t_stat):
+                optimal_alphas[attr] = alpha
+            else:
+                optimal_alphas[attr] = None # Mark as None if no improvement
+
+        X_individual_qr = apply_individual_debiasing_alpha_qr(X, optimal_alphas, attr_matrix, attr_names)
+        X_individual_non_qr = apply_individual_debiasing_alpha_non_qr(X, optimal_alphas, attr_matrix, attr_names)
+
+    # --- Evaluate All Embedding Versions ---
+    embedding_versions = [
+        ("Original", X), 
+        ("Hard Debias", X_hard), 
+        (f"Soft Debias (α={global_alpha:.2f})", X_soft),
+        (f"Soft Debias (QR Combined, α={global_alpha:.2f})", X_soft_qr_combined)
+    ]
+    if TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION:
+        embedding_versions.append(("IndivT-s", X_individual_non_qr))
+        embedding_versions.append(("IndivQRT-s", X_individual_qr))
+
+    for name, X_version in embedding_versions:
+        print(f"\nAnalyzing {name} Embeddings:")
         clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_version, gender_labels)
         acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
         results[name] = (clf, X_version)
         accuracies[name] = acc
 
-        # Run t-test analysis for each debiasing method
+        if name == "Individual Debias":
+            print(f"    [Diagnostic] Gender classification accuracy on Individual Debias embeddings: {acc:.2%}")
+
         ttest_results = compare_male_groups_ttest(clf, X_version, attr_matrix, attr_names, 
-                                    title=f"T-TEST ANALYSIS - {name}", 
+                                    title=f"T-TEST - {name}", 
                                     output_prefix=f"{name.replace(' ', '_').lower()}_")
         all_ttest_results[name] = ttest_results
 
-    # Visualize debiasing effect
-    fig, axes = plt.subplots(1, 3, figsize=(18, 8) )
-    
-    # Calculate global axis limits for consistent scaling
-    all_X_2d = []
-    for name, (clf, X_version) in results.items():
-        pca_temp = PCA(n_components=2)
-        X_2d_temp = pca_temp.fit_transform(X_version[:1000])
-        all_X_2d.append(X_2d_temp)
-    
-    # Find the maximum range across all plots for consistent scaling
-    all_points = np.vstack(all_X_2d)
-    max_range = np.max(np.abs(all_points)) * 1.1
+    # --- Visualization ---
+    num_plots = len(results)
+    fig, axes = plt.subplots(1, num_plots, figsize=(6 * num_plots, 8), sharey=True)
+    if num_plots == 1: axes = [axes] # Ensure axes is always iterable
+
+    all_X_2d = [PCA(n_components=2).fit_transform(res[1][:1000]) for res in results.values()]
+    max_range = np.max(np.abs(np.vstack(all_X_2d))) * 1.1
     
     for i, (name, (clf, X_version)) in enumerate(results.items()):
         ax = axes[i]
-        
-        # PCA visualization
         pca = PCA(n_components=2)
-        X_2d = pca.fit_transform(X_version[:1000])  # Subsample for clarity
+        X_2d = pca.fit_transform(X_version[:1000])
         
-        scatter = ax.scatter(X_2d[:, 0], X_2d[:, 1], 
-                            c=gender_labels[:1000].numpy(),
-                            cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
-                            alpha=0.6, s=40, edgecolors='none')
+        ax.scatter(X_2d[:, 0], X_2d[:, 1], c=gender_labels[:1000].numpy(),
+                   cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
+                   alpha=0.6, s=40, edgecolors='none')
         
-        ax.set_title(f"{name}\nAccuracy: {accuracies[name]:.2%}", fontsize=TITLE_SIZE+4)
+        ax.set_title(f"{name}\nAccuracy: {accuracies[name]:.2%}", fontsize=TITLE_SIZE)
         ax.set_xlabel("PC 1")
-        if i == 0:
-            ax.set_ylabel("PC 2")
-        ax.set_xlim(-max_range+1, max_range-1)
+        if i == 0: ax.set_ylabel("PC 2")
+        ax.set_xlim(-max_range, max_range)
         ax.set_ylim(-max_range, max_range)
         ax.grid(True, alpha=0.4)
         ax.set_aspect('equal', 'box')
 
-    # Add a single legend for the entire figure
-    legend_elements = [
-        Patch(facecolor=COLOR_PALETTE[0], label='Female'),
-        Patch(facecolor=COLOR_PALETTE[1], label='Male')
-    ]
-    fig.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0.0, 0.99), fontsize=LABEL_SIZE+3)
-    
-    plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 6)
-    plt.tight_layout(rect=[0, 0, 0.9, 1])
+    legend_elements = [Patch(facecolor=COLOR_PALETTE[0], label='Female'), Patch(facecolor=COLOR_PALETTE[1], label='Male')]
+    fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=2, fontsize=LABEL_SIZE)
+    plt.suptitle("Effect of Debiasing on Embedding Space", fontsize=TITLE_SIZE + 4, y=1.02)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     save_plot("debiasing_comparison.png")
 
-    # Print summary table
-    print("\n" + "="*60)
+    # --- T-Test Summary Table ---
+    print("\n" + "="*132)
     print("DEBIASING T-TEST SUMMARY")
-    print("="*60)
+    print("="*132)
     
-    header = f"{'Attribute':<20} | {'Original t-stat':<20} | {'Hard Debias t-stat':<20} | {'Soft Debias t-stat':<20} | {'|Δ Hard|':<10} | {'|Δ Soft|':<10}"
-    print(header)
-    print("-"*len(header))
+    header_parts = ["Attribute", "Orig", "Hard", f"Softα={global_alpha:.2f}", "Opti α", "IndivT-s", "IndivQRT-s", "∆Orig", "∆Soft", "∆SoftQR"]
+    col_widths = [20, 7, 7, 12, 8, 11, 11, 6, 6, 8]
 
-    for attribute in all_ttest_results["Original"].keys():
+    header = " | ".join([f"{h:<{w}}" for h, w in zip(header_parts, col_widths)])
+    print(header)
+    print("-" * len(header))
+
+    sorted_attributes = sorted(all_ttest_results["Original"].keys())
+    soft_t_key = f"Soft Debias (α={global_alpha:.2f})"
+    soft_qr_t_key = f"Soft Debias (QR Combined, α={global_alpha:.2f})"
+    for attribute in sorted_attributes:
         original_t = all_ttest_results["Original"][attribute]['t_stat']
         hard_t = all_ttest_results["Hard Debias"][attribute]['t_stat']
-        soft_t = all_ttest_results["Soft Debias(" + "\u03bb" + "=3.5)"][attribute]['t_stat']
-        delta_hard = abs(original_t - hard_t)
-        delta_soft = abs(original_t - soft_t)
-        print(f"{attribute:<20} | {original_t:<20.2f} | {hard_t:<20.2f} | {soft_t:<20.2f} | {delta_hard:<10.2f} | {delta_soft:<10.2f}")
-    
+        soft_t = all_ttest_results[soft_t_key][attribute]['t_stat']
+        soft_qr_t = all_ttest_results[soft_qr_t_key][attribute]['t_stat']
+        
+        row_parts = [
+            attribute,
+            f"{original_t:.3f}",
+            f"{hard_t:.3f}",
+            f"{soft_t:.3f}"
+        ]
+        
+        optimal_alpha_val = optimal_alphas.get(attribute)
+        if optimal_alpha_val is not None:
+            individual_non_qr_t = all_ttest_results["IndivT-s"][attribute]['t_stat']
+            individual_qr_t = all_ttest_results["IndivQRT-s"][attribute]['t_stat']
+            
+            delta_orig = abs(individual_non_qr_t - original_t)
+            delta_soft = abs(individual_non_qr_t - soft_t)
+            delta_soft_qr = abs(individual_qr_t - soft_qr_t)
+            
+            row_parts.extend([
+                f"{optimal_alpha_val:.2f}",
+                f"{individual_non_qr_t:.3f}",
+                f"{individual_qr_t:.3f}",
+                f"{delta_orig:.3f}",
+                f"{delta_soft:.3f}",
+                f"{delta_soft_qr:.3f}"
+            ])
+        else:
+            row_parts.extend(["-", "-", "-", "-", "-", "-"])
+
+        row = " | ".join([f"{p:<{w}}" for p, w in zip(row_parts, col_widths)])
+        print(row)
+        
     return results
+
+
 
 
 # ==================== MAIN PIPELINE ====================

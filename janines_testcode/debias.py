@@ -18,17 +18,10 @@ def hard_debias(embeddings, bias_basis):
         return embeddings - embeddings @ P.to(embeddings.device)
 
 
-def soft_debias(embeddings, bias_basis, lam=1.0):
-    """
-    making projection smaller of biased vectors.
-
-    math:
-    min_{x'} ||x-x'||^2+lam * ||Proj_B(x')||^2
-
-    """
-    B = bias_basis.T        #D, k
-    P = B @ B.T             #D, D
-    alpha = lam / (1.0 + lam)  #how much smaller param
+def soft_debias(embeddings, bias_basis, alpha=0.5):
+    """Direct alpha control without lambda transformation"""
+    B = bias_basis.T
+    P = B @ B.T
     if isinstance(embeddings, np.ndarray):
         return embeddings - alpha * (embeddings @ P)
     else:

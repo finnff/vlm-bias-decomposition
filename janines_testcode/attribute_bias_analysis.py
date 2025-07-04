@@ -6,7 +6,7 @@ from scipy.stats import ttest_ind
 import matplotlib.pyplot as plt
 
 
-def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, title="T-TEST ANALYSIS FOR INDIVIDUAL MALE ATTRIBUTES", output_prefix="", figsize=(10, 6), title_fontsize=16, label_fontsize=14):
+def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, title="T-TEST ANALYSIS FOR INDIVIDUAL MALE ATTRIBUTES", output_prefix="", figsize=(10, 6), title_fontsize=16, label_fontsize=14, TOGGLE_TTEST_PRINTS=True):
     """
     Performs and visualizes t-tests for all attributes within the male subgroup.
 
@@ -50,16 +50,17 @@ def compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, tit
         mask_group2 = male_mask & (attr_matrix[:, attr_idx] == 0)
         idxs_group2 = np.where(mask_group2)[0]
 
-        if len(idxs_group1) < 10 or len(idxs_group2) < 10:
+        if TOGGLE_TTEST_PRINTS:
+            if len(idxs_group1) < 10 or len(idxs_group2) < 10:
+                print(f"\n--- Attribute: {attribute} ---")
+                print(f"Skipping due to insufficient sample size: "
+                      f"Group 1 ({attribute}) has {len(idxs_group1)} samples, "
+                      f"Group 2 (Not {attribute}) has {len(idxs_group2)} samples.")
+                continue
+    
             print(f"\n--- Attribute: {attribute} ---")
-            print(f"Skipping due to insufficient sample size: "
-                  f"Group 1 ({attribute}) has {len(idxs_group1)} samples, "
-                  f"Group 2 (Not {attribute}) has {len(idxs_group2)} samples.")
-            continue
-
-        print(f"\n--- Attribute: {attribute} ---")
-        print(f"Group 1 (Males with {attribute}): {len(idxs_group1)} examples")
-        print(f"Group 2 (Males without {attribute}): {len(idxs_group2)} examples")
+            print(f"Group 1 (Males with {attribute}): {len(idxs_group1)} examples")
+            print(f"Group 2 (Males without {attribute}): {len(idxs_group2)} examples")
 
         X_group1 = clip_embeddings[idxs_group1]
         X_group2 = clip_embeddings[idxs_group2]
