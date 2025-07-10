@@ -32,7 +32,7 @@ if __name__ == "__main__":
     clip_embeddings, gender_labels = get_labels(dataset, batch_size=64, max_samples=5000)
     X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
     y = gender_labels.numpy() if torch.is_tensor(gender_labels) else gender_labels
-    clip_embs, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
+    clip_embs, attr_matrix, idx_list, attr_names = get_all_embeddings_and_attrs(dataset)
 
 
     idx_young      = attr_names.index("Young")
@@ -40,14 +40,14 @@ if __name__ == "__main__":
     idx_beard      = attr_names.index("No_Beard")
     temp           = attr_names.index("No_Beard")
 
-    mu_young_pos      = X[attr_mat[:, idx_young] == 1].mean(axis=0)   #u⁺
-    mu_young_neg      = X[attr_mat[:, idx_young] == 0].mean(axis=0)   #u⁻
-    mu_attr_pos       = X[attr_mat[:, idx_attractive] == 1].mean(axis=0)
-    mu_attr_neg       = X[attr_mat[:, idx_attractive] == 0].mean(axis=0)
-    mu_beard_pos      = X[attr_mat[:, idx_beard] == 1].mean(axis=0)   #u⁺
-    mu_beard_neg      = X[attr_mat[:, idx_beard] == 0].mean(axis=0)   #u⁻
-    mu_temp_pos      = X[attr_mat[:, temp] == 1].mean(axis=0)   #u⁺
-    mu_temp_neg      = X[attr_mat[:, temp] == 0].mean(axis=0)   #u⁻
+    mu_young_pos      = X[attr_matrix[:, idx_young] == 1].mean(axis=0)   #u⁺
+    mu_young_neg      = X[attr_matrix[:, idx_young] == 0].mean(axis=0)   #u⁻
+    mu_attr_pos       = X[attr_matrix[:, idx_attractive] == 1].mean(axis=0)
+    mu_attr_neg       = X[attr_matrix[:, idx_attractive] == 0].mean(axis=0)
+    mu_beard_pos      = X[attr_matrix[:, idx_beard] == 1].mean(axis=0)   #u⁺
+    mu_beard_neg      = X[attr_matrix[:, idx_beard] == 0].mean(axis=0)   #u⁻
+    mu_temp_pos      = X[attr_matrix[:, temp] == 1].mean(axis=0)   #u⁺
+    mu_temp_neg      = X[attr_matrix[:, temp] == 0].mean(axis=0)   #u⁻
 
     v_young      = mu_young_pos - mu_young_neg
     v_attractive = mu_attr_pos  - mu_attr_neg

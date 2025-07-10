@@ -29,12 +29,13 @@ from sklearn.manifold import TSNE
 # ==================== CONFIGURATION ====================
 # Feature Flags - Toggle each analysis component
 TOGGLE_GENDER_CLASSIFICATION = True
-TOGGLE_PCA_VISUALIZATION = False 
-TOGGLE_TSNE_VISUALIZATION = False 
-TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = False
-TOGGLE_MISCLASSIFIED_VISUALIZATION = False 
-TOGGLE_MALE_GROUP_COMPARISON = False 
+TOGGLE_PCA_VISUALIZATION = True
+TOGGLE_TSNE_VISUALIZATION = True
+TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
+TOGGLE_MISCLASSIFIED_VISUALIZATION = True  
+TOGGLE_MALE_GROUP_COMPARISON = True
 TOGGLE_DEBIASING_ANALYSIS = True
+TOGGLE_DETAILED_MALE_GROUP_PLOTS = False # Toggle for creating plots for each attribute in male group comparison
 DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias plots
 
 
@@ -42,12 +43,13 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
-MAX_SAMPLES = 5000
+MAX_SAMPLES = 2000
 BATCH_SIZE = 256
 
 # Output Configuration
 OUTPUT_DIR = "result_imgs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+GENERATED_PLOTS = [] # List to track generated plots for this run
 
 # Visualization Configuration
 PLOT_STYLE = "darkgrid"  # seaborn style: 'darkgrid', 'whitegrid', 'dark', 'white', 'ticks'
@@ -87,11 +89,13 @@ def setup_plot_style():
 
 
 def save_plot(filename):
-    """Save current plot to result_imgs directory"""
+    """Save current plot to result_imgs directory and track it."""
     filepath = os.path.join(OUTPUT_DIR, filename)
     plt.savefig(filepath, bbox_inches='tight', dpi=FIGURE_DPI)
     plt.close()
     print(f"Saved plot: {filepath}")
+    if filename not in GENERATED_PLOTS:
+        GENERATED_PLOTS.append(filename)
 
 
 # ==================== MODIFIED VISUALIZATION FUNCTIONS ====================
@@ -253,8 +257,11 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
 
     
     # Set axis limits to ensure centering
-    all_points = np.vstack([neg_centroids[~np.isnan(neg_centroids).any(axis=1)],
-                           pos_centroids[~np.isnan(pos_centroids).any(axis=1)]])
+    if DISPLAY_NEGATIVE_CENTROIDS:
+        all_points = np.vstack([neg_centroids[~np.isnan(neg_centroids).any(axis=1)],
+                               pos_centroids[~np.isnan(pos_centroids).any(axis=1)]])
+    else:
+        all_points = pos_centroids[~np.isnan(pos_centroids).any(axis=1)]
     max_range = np.max(np.abs(all_points)) * 1.1
     
     # Make plot square and centered
@@ -300,7 +307,10 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     # Plot only selected attributes
     for name, color in color_map.items():
         a_idx = attr_names.index(name)
-        neg_c = neg_centroids[a_idx]
+        if DISPLAY_NEGATIVE_CENTROIDS:
+            neg_c = neg_centroids[a_idx]
+        else:
+            neg_c = np.nan
         pos_c = pos_centroids[a_idx]
         
         if np.isnan(neg_c).any() or np.isnan(pos_c).any():
@@ -344,10 +354,13 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     selected_indices = [attr_names.index(name) for name in ARROW_BIAS_DIRECTIONS 
                        if name in attr_names]
     if selected_indices:
-        selected_points = np.vstack([
-            neg_centroids[selected_indices][~np.isnan(neg_centroids[selected_indices]).any(axis=1)],
-            pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
-        ])
+        if DISPLAY_NEGATIVE_CENTROIDS:
+            selected_points = np.vstack([
+                neg_centroids[selected_indices][~np.isnan(neg_centroids[selected_indices]).any(axis=1)],
+                pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
+            ])
+        else:
+            selected_points = pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
         max_range = np.max(np.abs(selected_points)) * 1.2
         ax.set_xlim(-max_range, max_range)
         ax.set_ylim(-max_range, max_range)
@@ -368,15 +381,15 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     
     # Call the original function for the console output
     print("\nAttribute bias analysis (console output):")
-    result = plot_attribute_bias_directions(clip_embeddings, attr_matrix, attr_names)
+    plot_attribute_bias_directions(clip_embeddings, attr_matrix, attr_names)
     
     # Move the original plot if it exists
     if os.path.exists("attribute_bias_directions.png"):
         dest_path = os.path.join(OUTPUT_DIR, "attribute_bias_directions_original.png")
         shutil.move("attribute_bias_directions.png", dest_path)
         print(f"Also saved original visualization to {OUTPUT_DIR}/attribute_bias_directions_original.png")
-    
-    return result
+        if "attribute_bias_directions_original.png" not in GENERATED_PLOTS:
+            GENERATED_PLOTS.append("attribute_bias_directions_original.png")
 
 
 def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5):
@@ -409,96 +422,104 @@ def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5
     plt.tight_layout()
     save_plot("misclassified_visualization.png")
 
-def compare_male_groups_custom(clf, clip_embeddings, attr_matrix, attr_names):
-    """Compare classification confidence for male groups with different attributes"""
-    import os
-    import shutil
-    
-    # Call original function (it will print stats to console)
-    compare_male_groups_ttest(clf, clip_embeddings, attr_matrix, attr_names, figsize=(8, 5), title_fontsize=TITLE_SIZE, label_fontsize=LABEL_SIZE)
-    
-    # The function saves its own plot, move it to our directory
-    source_path = "male_groups_confidence_hist_1.png"
-    if os.path.exists(source_path):
-        dest_path = os.path.join(OUTPUT_DIR, "male_groups_confidence_hist.png")
-        shutil.move(source_path, dest_path)
-        print(f"Saved plot: {dest_path}")
 
-def perform_debiasing_analysis(clip_embeddings, attr_matrix, attr_names, gender_labels):
-    """Analyze the effect of debiasing on gender classification"""
-    X = clip_embeddings.numpy() if torch.is_tensor(clip_embeddings) else clip_embeddings
+def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, images):
+    """Master function to run all analysis and debiasing steps."""
     
-    # Find bias attribute indices
-    bias_indices = [attr_names.index(attr) for attr in BIAS_ATTRIBUTES]
-    
-    # Compute bias directions
-    bias_directions = []
-    for idx in bias_indices:
-        mu_pos = X[attr_matrix[:, idx] == 1].mean(axis=0)
-        mu_neg = X[attr_matrix[:, idx] == 0].mean(axis=0)
-        v = mu_pos - mu_neg
-        v = v.astype(np.float32)
-        v /= np.linalg.norm(v)
-        bias_directions.append(v)
-    
-    # Create bias basis
-    B = np.stack(bias_directions, axis=1)
-    Q, _ = np.linalg.qr(B)
-    bias_basis = Q.T
-    
-    # Apply debiasing
-    X_hard = hard_debias(X, bias_basis)
-    X_soft = soft_debias(X, bias_basis, lam=DEBIAS_LAMBDA)
-    
-    # Train classifiers on each version
+    # 1. Initial Gender Classification
     print("\n" + "="*60)
-    print("DEBIASING ANALYSIS")
+    print("GENDER CLASSIFICATION ANALYSIS (ORIGINAL EMBEDDINGS)")
     print("="*60)
-    
-    results = {}
-    accuracies = {}
-    for name, X_version in [("Original", X), ("Hard Debias", X_hard), 
-                            ("Soft Debias (λ={})".format(DEBIAS_LAMBDA), X_soft)]:
-        print(f"\n{name} Embeddings:")
-        clf, X_train, X_test, y_train, y_test, y_pred, _ = train_gender_classifier(X_version, gender_labels)
-        acc = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
-        results[name] = (clf, X_version)
-        accuracies[name] = acc
-    
-    # Visualize debiasing effect
-    fig, axes = plt.subplots(1, 3, figsize=(18, 7), sharex=True, sharey=True)
-    
-    for i, (name, (clf, X_version)) in enumerate(results.items()):
-        ax = axes[i]
-        
-        # PCA visualization
-        pca = PCA(n_components=2)
-        X_2d = pca.fit_transform(X_version[:1000])  # Subsample for clarity
-        
-        scatter = ax.scatter(X_2d[:, 0], X_2d[:, 1], 
-                            c=gender_labels[:1000].numpy(),
-                            cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
-                            alpha=0.6, s=40, edgecolors='none')
-        
-        ax.set_title(f"{name}\nAccuracy: {accuracies[name]:.2%}", fontsize=TITLE_SIZE)
-        ax.set_xlabel("PC 1")
-        if i == 0:
-            ax.set_ylabel("PC 2")
-        ax.grid(True, alpha=0.3)
-        ax.set_aspect('equal', 'box')
+    clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = \
+        train_gender_classifier(clip_embeddings, gender_labels)
+    gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
+    eval_classifier(y_test, y_pred)
 
-    # Add a single legend for the entire figure
-    legend_elements = [
-        Patch(facecolor=COLOR_PALETTE[0], label='Female'),
-        Patch(facecolor=COLOR_PALETTE[1], label='Male')
-    ]
-    fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.95, 0.95), fontsize=LABEL_SIZE)
-    
-    plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 2)
-    plt.tight_layout(rect=[0, 0, 0.9, 1])
-    save_plot("debiasing_comparison.png")
-    
-    return results
+    # 2. Male Group Comparison for Original Embeddings
+    if TOGGLE_MALE_GROUP_COMPARISON:
+        print("\n--- Running Male Group T-Tests for Original Embeddings ---")
+        _, new_plots = compare_male_groups_ttest(
+            clf, clip_embeddings.numpy(), attr_matrix, attr_names,
+            title="T-TESTS FOR ORIGINAL EMBEDDINGS",
+            output_prefix="original_",
+            generate_plots=TOGGLE_DETAILED_MALE_GROUP_PLOTS
+        )
+        GENERATED_PLOTS.extend(new_plots)
+
+    # 3. Misclassified Visualization
+    if TOGGLE_MISCLASSIFIED_VISUALIZATION:
+        print("\nVisualizing misclassified examples...")
+        show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5)
+
+    # 4. Debiasing Analysis
+    if TOGGLE_DEBIASING_ANALYSIS:
+        print("\n" + "="*60)
+        print("DEBIASING ANALYSIS")
+        print("="*60)
+        
+        X = clip_embeddings.numpy()
+        
+        # Compute bias basis
+        bias_indices = [attr_names.index(attr) for attr in BIAS_ATTRIBUTES]
+        bias_directions = []
+        for idx in bias_indices:
+            mu_pos = X[attr_matrix[:, idx] == 1].mean(axis=0)
+            mu_neg = X[attr_matrix[:, idx] == 0].mean(axis=0)
+            v = mu_pos - mu_neg
+            v = v.astype(np.float32)
+            v /= np.linalg.norm(v)
+            bias_directions.append(v)
+        
+        B = np.stack(bias_directions, axis=1)
+        Q, _ = np.linalg.qr(B)
+        bias_basis = Q.T
+        
+        # Apply debiasing
+        X_hard = hard_debias(X, bias_basis)
+        X_soft = soft_debias(X, bias_basis, alpha=DEBIAS_LAMBDA)
+        
+        debiased_results = {"Hard Debias": X_hard, "Soft Debias": X_soft}
+        accuracies = {}
+        
+        for name, X_version in debiased_results.items():
+            print(f"\n--- Analysis for {name} Embeddings ---")
+            clf_debiased, _, _, _, _, _, _ = train_gender_classifier(X_version, gender_labels)
+            accuracies[name] = gender_classifier_accuracy(clf_debiased, X_train, y_train, X_test, y_test)
+            
+            if TOGGLE_MALE_GROUP_COMPARISON:
+                _, new_plots = compare_male_groups_ttest(
+                    clf_debiased, X_version, attr_matrix, attr_names,
+                    title=f"T-TESTS FOR {name.upper()} EMBEDDINGS",
+                    output_prefix=f"{name.lower().replace(' ', '_')}_",
+                    generate_plots=TOGGLE_DETAILED_MALE_GROUP_PLOTS
+                )
+                GENERATED_PLOTS.extend(new_plots)
+        
+        # Visualize debiasing effect
+        fig, axes = plt.subplots(1, 3, figsize=(18, 7), sharex=True, sharey=True)
+        all_embeddings = {"Original": X, "Hard Debias": X_hard, "Soft Debias": X_soft}
+        
+        for i, (name, X_version) in enumerate(all_embeddings.items()):
+            ax = axes[i]
+            pca = PCA(n_components=2)
+            X_2d = pca.fit_transform(X_version[:1000])
+            
+            ax.scatter(X_2d[:, 0], X_2d[:, 1], c=gender_labels[:1000].numpy(),
+                       cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
+                       alpha=0.6, s=40, edgecolors='none')
+            
+            acc_val = gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test) if name == "Original" else accuracies[name]
+            ax.set_title(f"{name}\nAccuracy: {acc_val:.2%}", fontsize=TITLE_SIZE)
+            ax.set_xlabel("PC 1")
+            if i == 0: ax.set_ylabel("PC 2")
+            ax.grid(True, alpha=0.3)
+            ax.set_aspect('equal', 'box')
+
+        legend_elements = [Patch(facecolor=COLOR_PALETTE[0], label='Female'), Patch(facecolor=COLOR_PALETTE[1], label='Male')]
+        fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.95, 0.95), fontsize=LABEL_SIZE)
+        plt.suptitle("Effect of Debiasing on Embedding Space and Gender Classification", fontsize=TITLE_SIZE + 2)
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
+        save_plot("debiasing_comparison.png")
 
 
 # ==================== MAIN PIPELINE ====================
@@ -510,82 +531,46 @@ def main():
     print(f"Output directory: {OUTPUT_DIR}")
     print("="*60)
     
-    # Load dataset - Core functionality needed by all components
+    # Load dataset
     print("\nLoading CelebA dataset...")
     try:
         dataset = load_celeba_dataset(root=DATA_ROOT, split=DATASET_SPLIT, download=False)
         print(f"Successfully loaded dataset with {len(dataset)} samples")
     except Exception as e:
         print(f"ERROR loading dataset: {type(e).__name__}: {e}")
-        print("\nPossible solutions:")
-        print("1. Ensure CelebA dataset is properly downloaded in the data directory")
-        print("2. Check that the data directory structure is correct")
         return
     
-    # Get CLIP embeddings and labels - Extract features from images
+    # Get CLIP embeddings and labels
     print(f"\nExtracting CLIP embeddings for {MAX_SAMPLES} samples...")
     clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES)
     
-    # Get all embeddings with attributes - Full attribute matrix for bias analysis
-    clip_embs_all, attr_mat, idx_list, attr_names = get_all_embeddings_and_attrs(
+    # Get all embeddings with attributes
+    clip_embs_all, attr_matrix, _, attr_names = get_all_embeddings_and_attrs(
         dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES
     )
     
-    # 1. Gender Classification
-    if TOGGLE_GENDER_CLASSIFICATION:
-        print("\n" + "="*60)
-        print("GENDER CLASSIFICATION ANALYSIS")
-        print("="*60)
-        # Train logistic regression classifier for gender prediction
-        clf, X_train, X_test, y_train, y_test, y_pred, misclassified_indices = \
-            train_gender_classifier(clip_embeddings, gender_labels)
-        
-        # Evaluate classifier performance
-        gender_classifier_accuracy(clf, X_train, y_train, X_test, y_test)
-        eval_classifier(y_test, y_pred)
-    
-    # 2. PCA Visualization
+    # Run core analysis functions based on toggles
     if TOGGLE_PCA_VISUALIZATION:
         print("\nGenerating PCA visualization...")
-        # Project embeddings to 2D using PCA and visualize gender separation
         pca_visualization(clip_embeddings, gender_labels)
     
-    # 3. t-SNE Visualization
     if TOGGLE_TSNE_VISUALIZATION:
         print("\nGenerating t-SNE visualization...")
-        # Non-linear dimensionality reduction for visualization
         tsne_visualization(clip_embeddings, gender_labels)
     
-    # 4. Attribute Bias Directions
     if TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS:
         print("\nAnalyzing attribute bias directions...")
-        # Visualize how different attributes create directional biases in embedding space
-        plot_attribute_bias_directions_custom(clip_embs_all, attr_mat, attr_names)
+        plot_attribute_bias_directions_custom(clip_embs_all, attr_matrix, attr_names)
     
-    # 5. Misclassified Visualization
-    if TOGGLE_MISCLASSIFIED_VISUALIZATION and TOGGLE_GENDER_CLASSIFICATION:
-        print("\nVisualizing misclassified examples...")
-        # Show examples where gender classifier made mistakes
-        show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5)
-    
-    # 6. Male Group Comparison
-    if TOGGLE_MALE_GROUP_COMPARISON and TOGGLE_GENDER_CLASSIFICATION:
-        print("\nComparing male groups with different attributes...")
-        # Statistical test comparing males with/without "female-associated" attributes
-        compare_male_groups_custom(clf, clip_embeddings, attr_mat, attr_names)
-    
-    # 7. Debiasing Analysis
-    if TOGGLE_DEBIASING_ANALYSIS:
-        print("\nPerforming debiasing analysis...")
-        # Apply and evaluate hard/soft debiasing techniques
-        perform_debiasing_analysis(clip_embeddings, attr_mat, attr_names, gender_labels)
-    
+    # Run the main, consolidated analysis workflow
+    if TOGGLE_GENDER_CLASSIFICATION:
+        run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, images)
+
     print("\n" + "="*60)
     print(f"Analysis complete! All results saved to {OUTPUT_DIR}/")
-    print("\nGenerated plots:")
-    for file in sorted(os.listdir(OUTPUT_DIR)):
-        if file.endswith('.png'):
-            print(f"  - {file}")
+    print("\nGenerated plots in this run:")
+    for file in sorted(GENERATED_PLOTS):
+        print(f"  - {file}")
     print("="*60)
 
 
