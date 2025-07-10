@@ -57,8 +57,14 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
-MAX_SAMPLES = 10000 # Increased samples for more stable statistics
+MAX_SAMPLES = 1000 # Increased samples for more stable statistics
 BATCH_SIZE = 256
+
+FAST_CLASSIFIER_TOLLERANCE = 1e-3  # Tolerance for fast classifier convergence
+FAST_CLASSIFIER_MAX_ITER = 5  # Max iterations for fast classifier
+
+SCALAR_TOLLERANCE = 1e-3  # Tolerance for scalar optimization
+SCALAR_MAX_ITERATION = 50  # Max iterations for scalar optimization
 
 # Output Configuration
 OUTPUT_DIR = "result_imgs"
@@ -112,9 +118,10 @@ def setup_plot_style():
 def save_plot(filename):
     """Save current plot to result_imgs directory and track it."""
     filepath = os.path.join(OUTPUT_DIR, filename)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     plt.savefig(filepath, bbox_inches='tight', dpi=FIGURE_DPI)
     plt.close()
-    print(f"Saved plot: {filepath}")
+    # print(f"Saved plot: {filepath}")
     if filename not in GENERATED_PLOTS:
         GENERATED_PLOTS.append(filename)
 
@@ -130,9 +137,9 @@ def soft_debias(X, bias_basis, alpha):
     P = bias_basis.T @ bias_basis
     return X - alpha * (X @ P)
 
-def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter=5):
+def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter= FAST_CLASSIFIER_MAX_ITER):
     """A faster, less precise classifier for use in optimization."""
-    clf = SGDClassifier(loss="log_loss", max_iter=max_iter, tol=1e-3, random_state=0)
+    clf = SGDClassifier(loss="log_loss", max_iter=max_iter, tol=FAST_CLASSIFIER_TOLLERANCE, random_state=0)
     clf.fit(X_tr, y_tr)
     acc = accuracy_score(y_te, clf.predict(X_te))
     return clf, acc
@@ -194,7 +201,8 @@ def find_optimal_alpha(X, y, attr_mat, attr_names, attr_name, train_idx, test_id
         t_stat_for_alpha,
         bounds=(0.0, 1.0), # Search up to 1.0
         method="bounded",
-        options={"xatol": 1e-3, "maxiter": 50}, # Looser tolerance for speed
+        # options={"xatol": 1e-3, "maxiter": 50}, # Looser tolerance for speed
+        options={"xatol": SCALAR_TOLLERANCE, "maxiter": SCALAR_MAX_ITERATION}, # Looser tolerance for speed
     )
 
     return res.x
@@ -556,6 +564,96 @@ def format_float(value, spec):
         return f"{'n/a':>{width}}"
     return f"{value:{spec}}"
 
+def plot_debiasing_pca_comparison(baseline_data, soft_data, hard_data, gender_labels, attribute_name):
+    """Generates a 3-panel PCA comparison plot for debiasing results for a specific attribute."""
+    fig, axes = plt.subplots(1, 3, figsize=(20, 7))
+    
+    all_data = {
+        "Baseline": baseline_data,
+        "Soft Debias": soft_data,
+        "Hard Debias": hard_data
+    }
+
+    # Main title and legend
+    fig.suptitle(f"Effect of Debiasing on Embedding Space (PCA) for '{attribute_name}'", fontsize=TITLE_SIZE + 2, y=1.05)
+    legend_elements = [
+        Patch(facecolor=COLOR_PALETTE[0], label='Female'),
+        Patch(facecolor=COLOR_PALETTE[1], label='Male')
+    ]
+    fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=2, fontsize=LABEL_SIZE)
+
+    for i, (name, data) in enumerate(all_data.items()):
+        ax = axes[i]
+        embeddings = data['embeddings']
+        acc = data['acc']
+        
+        pca = PCA(n_components=2)
+        # Use a subset for faster PCA and clearer plotting if the dataset is large
+        sample_size = min(len(embeddings), 2000)
+        indices = np.random.choice(len(embeddings), sample_size, replace=False)
+        
+        X_2d = pca.fit_transform(embeddings[indices])
+        
+        ax.scatter(X_2d[:, 0], X_2d[:, 1], c=gender_labels[indices].numpy(),
+                   cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
+                   alpha=SCATTER_ALPHA, s=SCATTER_SIZE, edgecolors='none')
+        
+        ax.set_title(f"{name}\nAccuracy: {acc:.1f}%", fontsize=TITLE_SIZE)
+        ax.set_xlabel("PCA 1")
+        if i == 0:
+            ax.set_ylabel("PCA 2")
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', 'box')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    save_plot(os.path.join("pca_comparison", f"debiasing_pca_comparison_{attribute_name}.png"))
+
+
+def plot_debiasing_tsne_comparison(baseline_data, soft_data, hard_data, gender_labels, attribute_name):
+    """Generates a 3-panel t-SNE comparison plot for debiasing results for a specific attribute."""
+    fig, axes = plt.subplots(1, 3, figsize=(20, 7))
+    
+    all_data = {
+        "Baseline": baseline_data,
+        "Soft Debias": soft_data,
+        "Hard Debias": hard_data
+    }
+
+    # Main title and legend
+    fig.suptitle(f"Effect of Debiasing on Embedding Space (t-SNE) for '{attribute_name}'", fontsize=TITLE_SIZE + 2, y=1.05)
+    legend_elements = [
+        Patch(facecolor=COLOR_PALETTE[0], label='Female'),
+        Patch(facecolor=COLOR_PALETTE[1], label='Male')
+    ]
+    fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=2, fontsize=LABEL_SIZE)
+
+    for i, (name, data) in enumerate(all_data.items()):
+        ax = axes[i]
+        embeddings = data['embeddings']
+        acc = data['acc']
+        
+        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+        # Use a subset for faster t-SNE and clearer plotting if the dataset is large
+        sample_size = min(len(embeddings), 2000)
+        indices = np.random.choice(len(embeddings), sample_size, replace=False)
+        
+        X_2d = tsne.fit_transform(embeddings[indices])
+        
+        ax.scatter(X_2d[:, 0], X_2d[:, 1], c=gender_labels[indices].numpy(),
+                   cmap=plt.cm.colors.ListedColormap(COLOR_PALETTE),
+                   alpha=SCATTER_ALPHA, s=SCATTER_SIZE, edgecolors='none')
+        
+        ax.set_title(f"{name}\nAccuracy: {acc:.1f}%", fontsize=TITLE_SIZE)
+        ax.set_xlabel("t-SNE 1")
+        if i == 0:
+            ax.set_ylabel("t-SNE 2")
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', 'box')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    save_plot(os.path.join("tsne_comparison", f"debiasing_tsne_comparison_{attribute_name}.png"))
+
+
 def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, images):
     """Master function to run all analysis and debiasing steps."""
     
@@ -587,7 +685,9 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
     # 4. Debiasing Analysis
     if TOGGLE_DEBIASING_ANALYSIS:
         print("\n" + "="*140)
-        print("DEBIASING ANALYSIS & INDIVIDUAL ALPHA OPTIMIZATION")
+        # also print MAX_SAMPLES, FAST_CLASSIFIER_TOLLERANCE, FAST_CLASSIFIER_MAX_ITER, SCALAR_TOLLERANCE,
+        # SCALAR_MAX_ITERATION
+        print(f"DEBIASING ANALYSIS & INDIVIDUAL ALPHA OPTIMIZATION | n: {MAX_SAMPLES}, fToll: {FAST_CLASSIFIER_TOLLERANCE}, fMaxIter: {FAST_CLASSIFIER_MAX_ITER}, ScaToll: {SCALAR_TOLLERANCE}, ScaMaxIter: {SCALAR_MAX_ITERATION}")
         print("="*140)
         
         X = clip_embeddings.numpy().astype(np.float32)
@@ -608,18 +708,18 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
         
         # --- Print Table Header ---
         header1 = (
-            f"{'Attribute':<20} | {'Baseline':^29} | "
-            f"{'Soft-Debias':^37} | {'Hard-Debias':^30}"
+            f"{'Attribute':<20} | {'Baseline':^27} | "
+            f"{'Soft-Debias':^35} | {'Hard-Debias':^30}"
         )
         header2 = (
-            f"{'':<20} | {'t':>6} | {'p':>11} | {'Acc%':>6} | "
-            f"{'α':>5} | {'t':>6} | {'p':>11} | {'Acc%':>6} | "
-            f"{'t':>6} | {'p':>11} | {'Acc%':>6}"
+            f"{'':<20} | {'t':>6} | {'p':>11} | {'Acc%':>4} | "
+            f"{'α':>5} | {'t':>6} | {'p':>11} | {'Acc%':>4} | "
+            f"{'t':>6} | {'p':>11} | {'Acc%':>4}"
         )
         separator = (
-            f"{'-'*20}-+-{'-'*6}-+-{'-'*11}-+-{'-'*6}-+-"
-            f"{'-'*5}-+-{'-'*6}-+-{'-'*11}-+-{'-'*6}-+-"
-            f"{'-'*6}-+-{'-'*11}-+-{'-'*6}"
+            f"{'-'*20}-+-{'-'*6}-+-{'-'*11}-+-{'-'*4}-+-"
+            f"{'-'*5}-+-{'-'*6}-+-{'-'*11}-+-{'-'*4}-+-"
+            f"{'-'*6}-+-{'-'*11}-+-{'-'*4}"
         )
         print(header1)
         print(header2)
@@ -641,7 +741,8 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
                 continue
 
             # --- Baseline Stats ---
-            clf_base, base_acc = train_gender_classifier_fast(X_tr_base, y_tr_base, X_te_base, y_te_base, max_iter=10)
+            clf_base, base_acc = train_gender_classifier_fast(X_tr_base, y_tr_base, X_te_base, y_te_base,
+                                                              max_iter=FAST_CLASSIFIER_MAX_ITER)
             base_acc *= 100
             base_probs = clf_base.predict_proba(X)[:, 1]
             base_t, base_p = ttest_ind(base_probs[mask1], base_probs[mask2], equal_var=False)
@@ -649,6 +750,7 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
             # --- Initialize metrics and classifiers for this loop iteration ---
             alpha, soft_t, soft_p, soft_acc, hard_t, hard_p, hard_acc = [np.nan] * 7
             clf_soft, clf_hard = None, None
+            X_soft, X_hard = None, None
             
             # --- All debiasing happens in this block ---
             mu_pos = X[pos].mean(0)
@@ -672,7 +774,7 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
                 if not np.isnan(alpha):
                     X_soft = soft_debias(X, bias_basis, alpha)
                     X_tr_soft, X_te_soft = X_soft[train_idx], X_soft[test_idx]
-                    clf_soft, soft_acc = train_gender_classifier_fast(X_tr_soft, y_tr_base, X_te_soft, y_te_base, max_iter=10)
+                    clf_soft, soft_acc = train_gender_classifier_fast(X_tr_soft, y_tr_base, X_te_soft, y_te_base, max_iter=FAST_CLASSIFIER_MAX_ITER)
                     soft_acc *= 100
                     soft_probs = clf_soft.predict_proba(X_soft)[:, 1]
                     soft_t, soft_p = ttest_ind(soft_probs[mask1], soft_probs[mask2], equal_var=False)
@@ -680,7 +782,8 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
                 # --- Hard Debias ---
                 X_hard = hard_debias(X, bias_basis)
                 X_tr_hard, X_te_hard = X_hard[train_idx], X_hard[test_idx]
-                clf_hard, hard_acc = train_gender_classifier_fast(X_tr_hard, y_tr_base, X_te_hard, y_te_base, max_iter=10)
+                clf_hard, hard_acc = train_gender_classifier_fast(X_tr_hard, y_tr_base, X_te_hard, y_te_base,
+                                                                  max_iter=FAST_CLASSIFIER_MAX_ITER)
                 hard_acc *= 100
                 hard_probs = clf_hard.predict_proba(X_hard)[:, 1]
                 hard_t, hard_p = ttest_ind(hard_probs[mask1], hard_probs[mask2], equal_var=False)
@@ -695,12 +798,33 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
             
             print(
                 f"{attr_name:<20} | "
-                f"{format_float(base_t, '6.2f')} | {format_float(base_p, '11.3e')} | {format_float(base_acc, '6.2f')} | "
+                f"{format_float(base_t, '6.2f')} | {format_float(base_p, '11.3e')} | {format_float(base_acc, '4.1f')} | "
                 f"{format_float(alpha, '5.3f')} | "
-                f"{format_float(soft_t, '6.2f')} | {format_float(soft_p, '11.3e')} | {format_float(soft_acc, '6.2f')} | "
-                f"{format_float(hard_t, '6.2f')} | {format_float(hard_p, '11.3e')} | {format_float(hard_acc, '6.2f')}"
+                f"{format_float(soft_t, '6.2f')} | {format_float(soft_p, '11.3e')} | {format_float(soft_acc, '4.1f')} | "
+                f"{format_float(hard_t, '6.2f')} | {format_float(hard_p, '11.3e')} | {format_float(hard_acc, '4.1f')}"
             )
             
+            # --- Generate 3-panel PCA plot if toggles are enabled ---
+            if (TOGGLE_PCA_VISUALIZATION and TOGGLE_DEBIASING_ANALYSIS and 
+                TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION and X_soft is not None and X_hard is not None):
+                plot_debiasing_pca_comparison(
+                    baseline_data={'embeddings': X, 'acc': base_acc},
+                    soft_data={'embeddings': X_soft, 'acc': soft_acc},
+                    hard_data={'embeddings': X_hard, 'acc': hard_acc},
+                    gender_labels=gender_labels,
+                    attribute_name=attr_name
+                )
+            
+            if (TOGGLE_TSNE_VISUALIZATION and TOGGLE_DEBIASING_ANALYSIS and
+                TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION and X_soft is not None and X_hard is not None):
+                plot_debiasing_tsne_comparison(
+                    baseline_data={'embeddings': X, 'acc': base_acc},
+                    soft_data={'embeddings': X_soft, 'acc': soft_acc},
+                    hard_data={'embeddings': X_hard, 'acc': hard_acc},
+                    gender_labels=gender_labels,
+                    attribute_name=attr_name
+                )
+
             # --- Clean up memory ---
             del clf_base
             if clf_soft: del clf_soft
@@ -724,10 +848,10 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
 
         print(
             f"{'Averages (abs t)':<20} | "
-            f"{format_float(avg_base_t, '6.2f')} | {format_float(avg_base_p, '11.3e')} | {format_float(avg_base_acc, '6.2f')} | "
+            f"{format_float(avg_base_t, '6.2f')} | {format_float(avg_base_p, '11.3e')} | {format_float(avg_base_acc, '4.1f')} | "
             f"{format_float(avg_alpha, '5.3f')} | "
-            f"{format_float(avg_soft_t, '6.2f')} | {format_float(avg_soft_p, '11.3e')} | {format_float(avg_soft_acc, '6.2f')} | "
-            f"{format_float(avg_hard_t, '6.2f')} | {format_float(avg_hard_p, '11.3e')} | {format_float(avg_hard_acc, '6.2f')}"
+            f"{format_float(avg_soft_t, '6.2f')} | {format_float(avg_soft_p, '11.3e')} | {format_float(avg_soft_acc, '4.1f')} | "
+            f"{format_float(avg_hard_t, '6.2f')} | {format_float(avg_hard_p, '11.3e')} | {format_float(avg_hard_acc, '4.1f')}"
         )
         print(separator)
 
