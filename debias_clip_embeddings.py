@@ -45,10 +45,10 @@ TOGGLE_GENDER_CLASSIFICATION = True
 TOGGLE_PCA_VISUALIZATION = True
 TOGGLE_TSNE_VISUALIZATION = True
 TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
-TOGGLE_MISCLASSIFIED_VISUALIZATION = True
+TOGGLE_MISCLASSIFIED_VISUALIZATION = False
 TOGGLE_MALE_GROUP_COMPARISON = True
 TOGGLE_DEBIASING_ANALYSIS = True
-TOGGLE_INDIVIDUAL_ALPHA_CALCULATION = True # <<<< NEW TOGGLE
+TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION = True
 TOGGLE_DETAILED_MALE_GROUP_PLOTS = False # Toggle for creating plots for each attribute in male group comparison
 DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias plots
 
@@ -57,7 +57,7 @@ DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias p
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
-MAX_SAMPLES = 100000 # Increased samples for more stable statistics
+MAX_SAMPLES = 10000 # Increased samples for more stable statistics
 BATCH_SIZE = 256
 
 # Output Configuration
@@ -68,9 +68,9 @@ GENERATED_PLOTS = [] # List to track generated plots for this run
 # Visualization Configuration
 PLOT_STYLE = "darkgrid"  # seaborn style: 'darkgrid', 'whitegrid', 'dark', 'white', 'ticks'
 FIGURE_DPI = 300
-FONT_SIZE = 18
-TITLE_SIZE = 22
-LABEL_SIZE = 20
+FONT_SIZE = 17
+TITLE_SIZE = 20
+LABEL_SIZE = 18
 
 # PCA/t-SNE plot configuration
 SCATTER_ALPHA = 0.6
@@ -78,10 +78,10 @@ SCATTER_SIZE = 50
 COLOR_PALETTE = ["#FF6B6B", "#4ECDC4"]  # Red for Female, Teal for Male
 
 # Attribute bias plot configuration
-ARROW_BIAS_DIRECTIONS = ["No_Beard", "Young", "Gray_Hair","Bald"] # Attributes to highlight with arrows in the plots
-ATTRIBUTES_TO_SHOW = ["No_Beard", "Young", "Gray_Hair","Bald"]
+ATTRIBUTES_TO_SHOW = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin","5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
+ARROW_BIAS_DIRECTIONS = ["Rosy_Cheeks","Attractive",  "Wearing_Lipstick",  "Gray_Hair","Bald","Pale_Skin", "5_o_Clock_Shadow"] # Attributes to highlight with arrows in the plots
 
-BIAS_LINE_WIDTH = 1.5
+BIAS_LINE_WIDTH = 4.0
 BIAS_TEXT_SIZE = 10
 
 # Debiasing Configuration
@@ -405,6 +405,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     # ===== PLOT 2: Only selected attributes for clarity =====
     plt.figure(figsize=(10, 10))
     ax = plt.gca()
+    texts2 = []
     
     # Plot only selected attributes
     for name, color in color_map.items():
@@ -415,43 +416,57 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
             neg_c = np.nan
         pos_c = pos_centroids[a_idx]
         
-        if np.isnan(neg_c).any() or np.isnan(pos_c).any():
+        if (DISPLAY_NEGATIVE_CENTROIDS and np.isnan(neg_c).any()) or np.isnan(pos_c).any():
             continue
         
         # Plot centroids with distinct markers
+        #
         if DISPLAY_NEGATIVE_CENTROIDS:
             ax.scatter(neg_c[0], neg_c[1], c=[color], s=300, alpha=0.9, 
-                    marker='o', edgecolors='black', linewidth=2.5)
+              marker='o', edgecolors='black', linewidth=2.5)
         ax.scatter(pos_c[0], pos_c[1], c=[color], s=300, alpha=0.9,
-                marker='X', edgecolors='black', linewidth=2.5)
+                  marker='.', edgecolors='black', linewidth=2.5)
         
         # Draw arrow
         if DISPLAY_NEGATIVE_CENTROIDS:
+            # Arrow from negative to positive centroid
             ax.annotate('', xy=pos_c, xytext=neg_c,
-                    arrowprops=dict(arrowstyle='<|-|>', color=color, lw=3.5, alpha=0.9, mutation_scale=25))
+                       arrowprops=dict(arrowstyle='<|-|>', color=color, lw=BIAS_LINE_WIDTH, alpha=0.9, mutation_scale=25))
+        else:
+            # Arrow from center to positive centroid
+            center = np.array([0.0, 0.0])
+            ax.annotate('', xy=pos_c, xytext=center,
+                       arrowprops=dict(arrowstyle='->', color=color, lw=BIAS_LINE_WIDTH, alpha=0.9, mutation_scale=25))
         
         # Add labels near the points
         if DISPLAY_NEGATIVE_CENTROIDS:
             direction = pos_c - neg_c
             direction_norm = direction / np.linalg.norm(direction)
             
-            ax.text(neg_c[0] - direction_norm[0]*0.2, 
-                neg_c[1] - direction_norm[1]*0.2, 
-                f'{name} (-)', 
-                fontsize=12, fontweight='bold', ha='center', va='center',
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                            edgecolor=color, linewidth=1.5, alpha=0.9))
+            text_neg = ax.text(neg_c[0] - direction_norm[0]*0.2, 
+                   neg_c[1] - direction_norm[1]*0.2, 
+                   f'{name} (-)', 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_neg)
+            
+            text_pos = ax.text(pos_c[0] + direction_norm[0]*0.2, 
+                   pos_c[1] + direction_norm[1]*0.2, 
+                   f'{name} (+)', 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_pos)
         else:
-            direction = pos_c
-            direction_norm = direction / np.linalg.norm(direction)
-        
-        ax.text(pos_c[0] + direction_norm[0]*0.2, 
-               pos_c[1] + direction_norm[1]*0.2, 
-               f'{name} (+)', 
-               fontsize=12, fontweight='bold', ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                        edgecolor=color, linewidth=1.5, alpha=0.9))
-    
+            # Only label the positive centroid
+            text_obj = ax.text(pos_c[0], pos_c[1], name, 
+                   fontsize=FONT_SIZE, fontweight='normal', ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', 
+                            edgecolor=color, linewidth=1.0, alpha=0.9))
+            texts2.append(text_obj)
+            
+       
     # Set centered axis limits for selected attributes only
     selected_indices = [attr_names.index(name) for name in ARROW_BIAS_DIRECTIONS 
                        if name in attr_names]
@@ -463,27 +478,35 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
             ])
         else:
             selected_points = pos_centroids[selected_indices][~np.isnan(pos_centroids[selected_indices]).any(axis=1)]
-        max_range = np.max(np.abs(selected_points)) * 1.2
-        ax.set_xlim(-max_range, max_range)
-        ax.set_ylim(-max_range, max_range)
+
+        if selected_points.size > 0:
+            x_min, x_max = selected_points[:, 0].min(), selected_points[:, 0].max()
+            y_min, y_max = selected_points[:, 1].min(), selected_points[:, 1].max()
+
+            x_padding = (x_max - x_min) * 0.2
+            y_padding = (y_max - y_min) * 0.2
+
+            ax.set_xlim(x_min - x_padding, x_max + x_padding)
+            ax.set_ylim(y_min - y_padding, y_max + y_padding)
     
     # Add zero lines
     ax.axhline(y=0, color='k', linestyle='--', alpha=0.5, linewidth=1)
     ax.axvline(x=0, color='k', linestyle='--', alpha=0.5, linewidth=1)
     
     ax.set_title(f"Bias Directions for: {', '.join(ARROW_BIAS_DIRECTIONS)}", 
-                fontsize=TITLE_SIZE)
-    ax.set_xlabel(f"PCA Component 1 ({pca.explained_variance_ratio_[0]:.1%} variance)")
-    ax.set_ylabel(f"PCA Component 2 ({pca.explained_variance_ratio_[1]:.1%} variance)")
+                fontsize=TITLE_SIZE,wrap=True)
+    ax.set_xlabel(f"PCA Component 1 ({pca.explained_variance_ratio_[0]:.1%} variance)",fontsize=LABEL_SIZE)
+    ax.set_ylabel(f"PCA 2 ({pca.explained_variance_ratio_[1]:.1%} variance)",fontsize=LABEL_SIZE)
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal', 'box')
     
+    adjust_text(texts2, arrowprops=dict(arrowstyle='->', color='gray', alpha=0.5))
     plt.tight_layout()
     save_plot("attribute_bias_selected_only.png")
     
     # Call the original function for the console output
     print("\nAttribute bias analysis (console output):")
-    plot_attribute_bias_directions(clip_embeddings, attr_matrix, attr_names)
+    result = plot_attribute_bias_directions(clip_embeddings, attr_matrix, attr_names)
     
     # Move the original plot if it exists
     if os.path.exists("attribute_bias_directions.png"):
@@ -492,6 +515,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
         print(f"Also saved original visualization to {OUTPUT_DIR}/attribute_bias_directions_original.png")
         if "attribute_bias_directions_original.png" not in GENERATED_PLOTS:
             GENERATED_PLOTS.append("attribute_bias_directions_original.png")
+    return result
 
 
 def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5):
@@ -584,18 +608,18 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
         
         # --- Print Table Header ---
         header1 = (
-            f"{'Attribute':<25} | {'Baseline':^31} | "
-            f"{'Soft-Debias':^39} | {'Hard-Debias':^35}"
+            f"{'Attribute':<20} | {'Baseline':^29} | "
+            f"{'Soft-Debias':^37} | {'Hard-Debias':^30}"
         )
         header2 = (
-            f"{'':<25} | {'t':>8} | {'p':>11} | {'Acc%':>6} | "
-            f"{'α':>5} | {'t':>8} | {'p':>11} | {'Acc%':>6} | "
-            f"{'t':>8} | {'p':>11} | {'Acc%':>6}"
+            f"{'':<20} | {'t':>6} | {'p':>11} | {'Acc%':>6} | "
+            f"{'α':>5} | {'t':>6} | {'p':>11} | {'Acc%':>6} | "
+            f"{'t':>6} | {'p':>11} | {'Acc%':>6}"
         )
         separator = (
-            f"{'-'*25}-+-{'-'*8}-+-{'-'*11}-+-{'-'*6}-+-"
-            f"{'-'*5}-+-{'-'*8}-+-{'-'*11}-+-{'-'*6}-+-"
-            f"{'-'*8}-+-{'-'*11}-+-{'-'*6}"
+            f"{'-'*20}-+-{'-'*6}-+-{'-'*11}-+-{'-'*6}-+-"
+            f"{'-'*5}-+-{'-'*6}-+-{'-'*11}-+-{'-'*6}-+-"
+            f"{'-'*6}-+-{'-'*11}-+-{'-'*6}"
         )
         print(header1)
         print(header2)
@@ -637,7 +661,7 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
 
                 # --- Alpha Calculation & Soft Debias ---
                 optimal_alpha = np.nan
-                if TOGGLE_INDIVIDUAL_ALPHA_CALCULATION:
+                if TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION:
                     res_alpha = find_optimal_alpha(X, y, attr_mat_bool, attr_names, attr_name, train_idx, test_idx)
                     if res_alpha is not None:
                         optimal_alpha = res_alpha
@@ -670,11 +694,11 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
             results_data.append(row_data)
             
             print(
-                f"{attr_name:<25} | "
-                f"{format_float(base_t, '8.2f')} | {format_float(base_p, '11.3e')} | {format_float(base_acc, '6.1f')} | "
+                f"{attr_name:<20} | "
+                f"{format_float(base_t, '6.2f')} | {format_float(base_p, '11.3e')} | {format_float(base_acc, '6.2f')} | "
                 f"{format_float(alpha, '5.3f')} | "
-                f"{format_float(soft_t, '8.2f')} | {format_float(soft_p, '11.3e')} | {format_float(soft_acc, '6.1f')} | "
-                f"{format_float(hard_t, '8.2f')} | {format_float(hard_p, '11.3e')} | {format_float(hard_acc, '6.1f')}"
+                f"{format_float(soft_t, '6.2f')} | {format_float(soft_p, '11.3e')} | {format_float(soft_acc, '6.2f')} | "
+                f"{format_float(hard_t, '6.2f')} | {format_float(hard_p, '11.3e')} | {format_float(hard_acc, '6.2f')}"
             )
             
             # --- Clean up memory ---
@@ -699,11 +723,11 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
         avg_hard_acc = np.nanmean([r['Hard-Debias Acc'] for r in results_data])
 
         print(
-            f"{'Averages (abs t)':<25} | "
-            f"{format_float(avg_base_t, '8.2f')} | {format_float(avg_base_p, '11.3e')} | {format_float(avg_base_acc, '6.1f')} | "
+            f"{'Averages (abs t)':<20} | "
+            f"{format_float(avg_base_t, '6.2f')} | {format_float(avg_base_p, '11.3e')} | {format_float(avg_base_acc, '6.2f')} | "
             f"{format_float(avg_alpha, '5.3f')} | "
-            f"{format_float(avg_soft_t, '8.2f')} | {format_float(avg_soft_p, '11.3e')} | {format_float(avg_soft_acc, '6.1f')} | "
-            f"{format_float(avg_hard_t, '8.2f')} | {format_float(avg_hard_p, '11.3e')} | {format_float(avg_hard_acc, '6.1f')}"
+            f"{format_float(avg_soft_t, '6.2f')} | {format_float(avg_soft_p, '11.3e')} | {format_float(avg_soft_acc, '6.2f')} | "
+            f"{format_float(avg_hard_t, '6.2f')} | {format_float(avg_hard_p, '11.3e')} | {format_float(avg_hard_acc, '6.2f')}"
         )
         print(separator)
 
