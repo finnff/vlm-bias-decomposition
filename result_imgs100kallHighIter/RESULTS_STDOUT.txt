@@ -1,0 +1,377 @@
+Starting CLIP Bias Analysis Pipeline
+Output directory: result_imgs
+============================================================
+
+Loading CelebA dataset...
+Successfully loaded dataset with 162770 samples
+
+Extracting CLIP embeddings for 100000 samples...
+Getting labels: 100%|███████████████████████████████████████████████████████████████████████████████████| 391/391 [06:01<00:00,  1.08batch/s]
+Getting all embeddings: 100%|███████████████████████████████████████████████████████████████████████████| 391/391 [06:03<00:00,  1.08batch/s]
+
+Generating PCA visualization...
+
+Generating t-SNE visualization...
+Running t-SNE (this may take a moment)...
+
+Analyzing attribute bias directions...
+
+Attribute bias analysis (console output):
+Also saved original visualization to result_imgs/attribute_bias_directions_original.png
+
+============================================================
+GENDER CLASSIFICATION ANALYSIS (ORIGINAL EMBEDDINGS)
+============================================================
+Gender classifier training accuracy: 0.9916
+Gender classifier test accuracy:     0.9902
+Classification Report:
+              precision    recall  f1-score   support
+
+      Female       0.99      0.99      0.99     11632
+        Male       0.99      0.99      0.99      8388
+
+    accuracy                           0.99     20020
+   macro avg       0.99      0.99      0.99     20020
+weighted avg       0.99      0.99      0.99     20020
+
+Confusion Matrix:
+[[11561    71]
+ [  125  8263]]
+
+--- Running Male Group T-Tests for Original Embeddings ---
+
+============================================================
+T-TESTS FOR ORIGINAL EMBEDDINGS
+============================================================
+Applying Bonferroni correction. Significance level (alpha) = 1.282e-03
+
+--- Attribute: 5_o_Clock_Shadow ---
+Group 1 (Males with 5_o_Clock_Shadow): 11212 examples
+Group 2 (Males without 5_o_Clock_Shadow): 30724 examples
+Avg. P(male) for Group 1 (with 5_o_Clock_Shadow): 0.9973 ± 0.0272
+Avg. P(male) for Group 2 (without 5_o_Clock_Shadow): 0.9783 ± 0.1140
+SIGNIFICANT (p < 1.282e-03): t = 27.20, p = 2.197e-161
+
+--- Attribute: Arched_Eyebrows ---
+Group 1 (Males with Arched_Eyebrows): 2243 examples
+Group 2 (Males without Arched_Eyebrows): 39693 examples
+Avg. P(male) for Group 1 (with Arched_Eyebrows): 0.9796 ± 0.1086
+Avg. P(male) for Group 2 (without Arched_Eyebrows): 0.9836 ± 0.0984
+NOT SIGNIFICANT (p >= 1.282e-03): t = -1.70, p = 8.882e-02
+
+--- Attribute: Attractive ---
+Group 1 (Males with Attractive): 11670 examples
+Group 2 (Males without Attractive): 30266 examples
+Avg. P(male) for Group 1 (with Attractive): 0.9864 ± 0.0828
+Avg. P(male) for Group 2 (without Attractive): 0.9822 ± 0.1045
+SIGNIFICANT (p < 1.282e-03): t = 4.29, p = 1.780e-05
+
+--- Attribute: Bags_Under_Eyes ---
+Group 1 (Males with Bags_Under_Eyes): 14488 examples
+Group 2 (Males without Bags_Under_Eyes): 27448 examples
+Avg. P(male) for Group 1 (with Bags_Under_Eyes): 0.9891 ± 0.0786
+Avg. P(male) for Group 2 (without Bags_Under_Eyes): 0.9803 ± 0.1080
+SIGNIFICANT (p < 1.282e-03): t = 9.58, p = 9.821e-22
+
+--- Attribute: Bald ---
+Group 1 (Males with Bald): 2237 examples
+Group 2 (Males without Bald): 39699 examples
+Avg. P(male) for Group 1 (with Bald): 0.9977 ± 0.0333
+Avg. P(male) for Group 2 (without Bald): 0.9825 ± 0.1013
+SIGNIFICANT (p < 1.282e-03): t = 17.48, p = 1.595e-66
+
+--- Attribute: Bangs ---
+Group 1 (Males with Bangs): 3571 examples
+Group 2 (Males without Bangs): 38365 examples
+Avg. P(male) for Group 1 (with Bangs): 0.9570 ± 0.1498
+Avg. P(male) for Group 2 (without Bangs): 0.9858 ± 0.0924
+SIGNIFICANT (p < 1.282e-03): t = -11.30, p = 3.845e-29
+
+--- Attribute: Big_Lips ---
+Group 1 (Males with Big_Lips): 6413 examples
+Group 2 (Males without Big_Lips): 35523 examples
+Avg. P(male) for Group 1 (with Big_Lips): 0.9767 ± 0.1241
+Avg. P(male) for Group 2 (without Big_Lips): 0.9846 ± 0.0936
+SIGNIFICANT (p < 1.282e-03): t = -4.85, p = 1.251e-06
+
+--- Attribute: Big_Nose ---
+Group 1 (Males with Big_Nose): 17581 examples
+Group 2 (Males without Big_Nose): 24355 examples
+Avg. P(male) for Group 1 (with Big_Nose): 0.9891 ± 0.0798
+Avg. P(male) for Group 2 (without Big_Nose): 0.9792 ± 0.1105
+SIGNIFICANT (p < 1.282e-03): t = 10.70, p = 1.074e-26
+
+--- Attribute: Black_Hair ---
+Group 1 (Males with Black_Hair): 12439 examples
+Group 2 (Males without Black_Hair): 29497 examples
+Avg. P(male) for Group 1 (with Black_Hair): 0.9863 ± 0.0875
+Avg. P(male) for Group 2 (without Black_Hair): 0.9821 ± 0.1033
+SIGNIFICANT (p < 1.282e-03): t = 4.22, p = 2.491e-05
+
+--- Attribute: Blond_Hair ---
+Group 1 (Males with Blond_Hair): 856 examples
+Group 2 (Males without Blond_Hair): 41080 examples
+Avg. P(male) for Group 1 (with Blond_Hair): 0.9392 ± 0.1999
+Avg. P(male) for Group 2 (without Blond_Hair): 0.9843 ± 0.0955
+SIGNIFICANT (p < 1.282e-03): t = -6.57, p = 8.622e-11
+
+--- Attribute: Blurry ---
+Group 1 (Males with Blurry): 2452 examples
+Group 2 (Males without Blurry): 39484 examples
+Avg. P(male) for Group 1 (with Blurry): 0.9554 ± 0.1670
+Avg. P(male) for Group 2 (without Blurry): 0.9851 ± 0.0928
+SIGNIFICANT (p < 1.282e-03): t = -8.73, p = 4.430e-18
+
+--- Attribute: Brown_Hair ---
+Group 1 (Males with Brown_Hair): 6372 examples
+Group 2 (Males without Brown_Hair): 35564 examples
+Avg. P(male) for Group 1 (with Brown_Hair): 0.9828 ± 0.0973
+Avg. P(male) for Group 2 (without Brown_Hair): 0.9834 ± 0.0992
+NOT SIGNIFICANT (p >= 1.282e-03): t = -0.50, p = 6.175e-01
+
+--- Attribute: Bushy_Eyebrows ---
+Group 1 (Males with Bushy_Eyebrows): 10239 examples
+Group 2 (Males without Bushy_Eyebrows): 31697 examples
+Avg. P(male) for Group 1 (with Bushy_Eyebrows): 0.9919 ± 0.0598
+Avg. P(male) for Group 2 (without Bushy_Eyebrows): 0.9806 ± 0.1085
+SIGNIFICANT (p < 1.282e-03): t = 13.28, p = 3.709e-40
+
+--- Attribute: Chubby ---
+Group 1 (Males with Chubby): 5016 examples
+Group 2 (Males without Chubby): 36920 examples
+Avg. P(male) for Group 1 (with Chubby): 0.9912 ± 0.0755
+Avg. P(male) for Group 2 (without Chubby): 0.9823 ± 0.1017
+SIGNIFICANT (p < 1.282e-03): t = 7.50, p = 6.874e-14
+
+--- Attribute: Double_Chin ---
+Group 1 (Males with Double_Chin): 4085 examples
+Group 2 (Males without Double_Chin): 37851 examples
+Avg. P(male) for Group 1 (with Double_Chin): 0.9943 ± 0.0581
+Avg. P(male) for Group 2 (without Double_Chin): 0.9822 ± 0.1023
+SIGNIFICANT (p < 1.282e-03): t = 11.59, p = 8.424e-31
+
+--- Attribute: Eyeglasses ---
+Group 1 (Males with Eyeglasses): 5169 examples
+Group 2 (Males without Eyeglasses): 36767 examples
+Avg. P(male) for Group 1 (with Eyeglasses): 0.9840 ± 0.0996
+Avg. P(male) for Group 2 (without Eyeglasses): 0.9832 ± 0.0988
+NOT SIGNIFICANT (p >= 1.282e-03): t = 0.54, p = 5.878e-01
+
+--- Attribute: Goatee ---
+Group 1 (Males with Goatee): 6253 examples
+Group 2 (Males without Goatee): 35683 examples
+Avg. P(male) for Group 1 (with Goatee): 0.9985 ± 0.0192
+Avg. P(male) for Group 2 (without Goatee): 0.9807 ± 0.1067
+SIGNIFICANT (p < 1.282e-03): t = 28.95, p = 1.548e-182
+
+--- Attribute: Gray_Hair ---
+Group 1 (Males with Gray_Hair): 3682 examples
+Group 2 (Males without Gray_Hair): 38254 examples
+Avg. P(male) for Group 1 (with Gray_Hair): 0.9918 ± 0.0730
+Avg. P(male) for Group 2 (without Gray_Hair): 0.9825 ± 0.1010
+SIGNIFICANT (p < 1.282e-03): t = 7.06, p = 1.840e-12
+
+--- Attribute: Heavy_Makeup ---
+Group 1 (Males with Heavy_Makeup): 122 examples
+Group 2 (Males without Heavy_Makeup): 41814 examples
+Avg. P(male) for Group 1 (with Heavy_Makeup): 0.8399 ± 0.2631
+Avg. P(male) for Group 2 (without Heavy_Makeup): 0.9838 ± 0.0977
+SIGNIFICANT (p < 1.282e-03): t = -6.01, p = 1.987e-08
+
+--- Attribute: High_Cheekbones ---
+Group 1 (Males with High_Cheekbones): 12848 examples
+Group 2 (Males without High_Cheekbones): 29088 examples
+Avg. P(male) for Group 1 (with High_Cheekbones): 0.9864 ± 0.0882
+Avg. P(male) for Group 2 (without High_Cheekbones): 0.9820 ± 0.1033
+SIGNIFICANT (p < 1.282e-03): t = 4.44, p = 8.881e-06
+
+--- Attribute: Mouth_Slightly_Open ---
+Group 1 (Males with Mouth_Slightly_Open): 17770 examples
+Group 2 (Males without Mouth_Slightly_Open): 24166 examples
+Avg. P(male) for Group 1 (with Mouth_Slightly_Open): 0.9833 ± 0.0980
+Avg. P(male) for Group 2 (without Mouth_Slightly_Open): 0.9834 ± 0.0996
+NOT SIGNIFICANT (p >= 1.282e-03): t = -0.02, p = 9.839e-01
+
+--- Attribute: Mustache ---
+Group 1 (Males with Mustache): 4015 examples
+Group 2 (Males without Mustache): 37921 examples
+Avg. P(male) for Group 1 (with Mustache): 0.9986 ± 0.0169
+Avg. P(male) for Group 2 (without Mustache): 0.9817 ± 0.1038
+SIGNIFICANT (p < 1.282e-03): t = 28.26, p = 7.227e-174
+
+--- Attribute: Narrow_Eyes ---
+Group 1 (Males with Narrow_Eyes): 5059 examples
+Group 2 (Males without Narrow_Eyes): 36877 examples
+Avg. P(male) for Group 1 (with Narrow_Eyes): 0.9793 ± 0.1112
+Avg. P(male) for Group 2 (without Narrow_Eyes): 0.9839 ± 0.0971
+NOT SIGNIFICANT (p >= 1.282e-03): t = -2.77, p = 5.639e-03
+
+--- Attribute: No_Beard ---
+Group 1 (Males with No_Beard): 25475 examples
+Group 2 (Males without No_Beard): 16461 examples
+Avg. P(male) for Group 1 (with No_Beard): 0.9746 ± 0.1233
+Avg. P(male) for Group 2 (without No_Beard): 0.9969 ± 0.0330
+SIGNIFICANT (p < 1.282e-03): t = -27.48, p = 2.838e-164
+
+--- Attribute: Oval_Face ---
+Group 1 (Males with Oval_Face): 9216 examples
+Group 2 (Males without Oval_Face): 32720 examples
+Avg. P(male) for Group 1 (with Oval_Face): 0.9900 ± 0.0724
+Avg. P(male) for Group 2 (without Oval_Face): 0.9815 ± 0.1051
+SIGNIFICANT (p < 1.282e-03): t = 9.02, p = 1.982e-19
+
+--- Attribute: Pale_Skin ---
+Group 1 (Males with Pale_Skin): 1049 examples
+Group 2 (Males without Pale_Skin): 40887 examples
+Avg. P(male) for Group 1 (with Pale_Skin): 0.9543 ± 0.1679
+Avg. P(male) for Group 2 (without Pale_Skin): 0.9841 ± 0.0964
+SIGNIFICANT (p < 1.282e-03): t = -5.72, p = 1.388e-08
+
+--- Attribute: Pointy_Nose ---
+Group 1 (Males with Pointy_Nose): 6849 examples
+Group 2 (Males without Pointy_Nose): 35087 examples
+Avg. P(male) for Group 1 (with Pointy_Nose): 0.9873 ± 0.0862
+Avg. P(male) for Group 2 (without Pointy_Nose): 0.9826 ± 0.1012
+SIGNIFICANT (p < 1.282e-03): t = 4.03, p = 5.568e-05
+
+--- Attribute: Receding_Hairline ---
+Group 1 (Males with Receding_Hairline): 4890 examples
+Group 2 (Males without Receding_Hairline): 37046 examples
+Avg. P(male) for Group 1 (with Receding_Hairline): 0.9863 ± 0.1005
+Avg. P(male) for Group 2 (without Receding_Hairline): 0.9830 ± 0.0987
+NOT SIGNIFICANT (p >= 1.282e-03): t = 2.21, p = 2.694e-02
+
+--- Attribute: Rosy_Cheeks ---
+Group 1 (Males with Rosy_Cheeks): 132 examples
+Group 2 (Males without Rosy_Cheeks): 41804 examples
+Avg. P(male) for Group 1 (with Rosy_Cheeks): 0.9790 ± 0.1048
+Avg. P(male) for Group 2 (without Rosy_Cheeks): 0.9834 ± 0.0989
+NOT SIGNIFICANT (p >= 1.282e-03): t = -0.47, p = 6.374e-01
+
+--- Attribute: Sideburns ---
+Group 1 (Males with Sideburns): 5594 examples
+Group 2 (Males without Sideburns): 36342 examples
+Avg. P(male) for Group 1 (with Sideburns): 0.9987 ± 0.0155
+Avg. P(male) for Group 2 (without Sideburns): 0.9810 ± 0.1059
+SIGNIFICANT (p < 1.282e-03): t = 29.92, p = 1.145e-194
+
+--- Attribute: Smiling ---
+Group 1 (Males with Smiling): 16701 examples
+Group 2 (Males without Smiling): 25235 examples
+Avg. P(male) for Group 1 (with Smiling): 0.9877 ± 0.0828
+Avg. P(male) for Group 2 (without Smiling): 0.9805 ± 0.1082
+SIGNIFICANT (p < 1.282e-03): t = 7.68, p = 1.568e-14
+
+--- Attribute: Straight_Hair ---
+Group 1 (Males with Straight_Hair): 10102 examples
+Group 2 (Males without Straight_Hair): 31834 examples
+Avg. P(male) for Group 1 (with Straight_Hair): 0.9867 ± 0.0848
+Avg. P(male) for Group 2 (without Straight_Hair): 0.9823 ± 0.1030
+SIGNIFICANT (p < 1.282e-03): t = 4.37, p = 1.245e-05
+
+--- Attribute: Wavy_Hair ---
+Group 1 (Males with Wavy_Hair): 6006 examples
+Group 2 (Males without Wavy_Hair): 35930 examples
+Avg. P(male) for Group 1 (with Wavy_Hair): 0.9752 ± 0.1191
+Avg. P(male) for Group 2 (without Wavy_Hair): 0.9847 ± 0.0951
+SIGNIFICANT (p < 1.282e-03): t = -5.86, p = 4.947e-09
+
+--- Attribute: Wearing_Earrings ---
+Group 1 (Males with Wearing_Earrings): 648 examples
+Group 2 (Males without Wearing_Earrings): 41288 examples
+Avg. P(male) for Group 1 (with Wearing_Earrings): 0.9289 ± 0.2249
+Avg. P(male) for Group 2 (without Wearing_Earrings): 0.9842 ± 0.0954
+SIGNIFICANT (p < 1.282e-03): t = -6.25, p = 7.650e-10
+
+--- Attribute: Wearing_Hat ---
+Group 1 (Males with Wearing_Hat): 3428 examples
+Group 2 (Males without Wearing_Hat): 38508 examples
+Avg. P(male) for Group 1 (with Wearing_Hat): 0.9762 ± 0.1171
+Avg. P(male) for Group 2 (without Wearing_Hat): 0.9840 ± 0.0971
+SIGNIFICANT (p < 1.282e-03): t = -3.76, p = 1.691e-04
+
+--- Attribute: Wearing_Lipstick ---
+Group 1 (Males with Wearing_Lipstick): 264 examples
+Group 2 (Males without Wearing_Lipstick): 41672 examples
+Avg. P(male) for Group 1 (with Wearing_Lipstick): 0.8564 ± 0.2626
+Avg. P(male) for Group 2 (without Wearing_Lipstick): 0.9842 ± 0.0965
+SIGNIFICANT (p < 1.282e-03): t = -7.88, p = 8.507e-14
+
+--- Attribute: Wearing_Necklace ---
+Group 1 (Males with Wearing_Necklace): 740 examples
+Group 2 (Males without Wearing_Necklace): 41196 examples
+Avg. P(male) for Group 1 (with Wearing_Necklace): 0.9472 ± 0.1704
+Avg. P(male) for Group 2 (without Wearing_Necklace): 0.9840 ± 0.0971
+SIGNIFICANT (p < 1.282e-03): t = -5.85, p = 7.391e-09
+
+--- Attribute: Wearing_Necktie ---
+Group 1 (Males with Wearing_Necktie): 7302 examples
+Group 2 (Males without Wearing_Necktie): 34634 examples
+Avg. P(male) for Group 1 (with Wearing_Necktie): 0.9973 ± 0.0299
+Avg. P(male) for Group 2 (without Wearing_Necktie): 0.9804 ± 0.1078
+SIGNIFICANT (p < 1.282e-03): t = 25.03, p = 3.540e-137
+
+--- Attribute: Young ---
+Group 1 (Males with Young): 26771 examples
+Group 2 (Males without Young): 15165 examples
+Avg. P(male) for Group 1 (with Young): 0.9809 ± 0.1043
+Avg. P(male) for Group 2 (without Young): 0.9876 ± 0.0885
+SIGNIFICANT (p < 1.282e-03): t = -6.92, p = 4.751e-12
+
+============================================================
+
+============================================================================================================================================
+DEBIASING ANALYSIS & INDIVIDUAL ALPHA OPTIMIZATION | n: 100000, CohenDThresh: 0.2, fToll: 0.0001, fIter: 10, ScaToll: 0.0001, ScaIter: 100
+============================================================================================================================================
+Attribute            |              Baseline              |                Soft-Debias                 |          Hard-Debias
+                     |      t |   C.d |          p | Acc% |     α |      t |   C.d |          p | Acc% |      t |   C.d |          p | Acc%
+---------------------+--------+-------+------------+------+-------+--------+-------+------------+------+--------+-------+------------+-----
+5_o_Clock_Shadow     |  26.56 |  0.19 | 5.312e-154 | 99.1 | 0.913 |  -1.67 | -0.01 |  9.419e-02 | 99.0 | -90.43 | -1.34 |  0.000e+00 | 90.2
+Arched_Eyebrows      |  -1.45 | -0.03 |  1.460e-01 | 99.1 | 0.377 |  -1.38 | -0.03 |  1.674e-01 | 99.1 |  57.02 |  0.74 |  0.000e+00 | 88.4
+Attractive           |   5.53 |  0.05 |  3.182e-08 | 99.1 | 0.298 |   5.62 |  0.05 |  1.917e-08 | 99.1 |  84.90 |  0.66 |  0.000e+00 | 95.9
+Bags_Under_Eyes      |   9.98 |  0.09 |  2.025e-23 | 99.1 | 0.901 |  -2.11 | -0.02 |  3.461e-02 | 99.0 | -67.69 | -0.80 |  0.000e+00 | 92.1
+Bald                 |  15.46 |  0.15 |  1.588e-52 | 99.1 | 0.800 |  -2.01 | -0.03 |  4.407e-02 | 99.1 | -47.74 | -2.13 |  0.000e+00 | 98.4
+Bangs                |  -9.92 | -0.25 |  6.175e-23 | 99.1 | 0.996 |  -1.28 | -0.03 |  1.999e-01 | 98.9 |  -1.27 | -0.03 |  2.046e-01 | 98.9
+Big_Lips             |  -5.01 | -0.08 |  5.454e-07 | 99.1 | 0.919 |   0.95 |  0.01 |  3.445e-01 | 99.0 |   4.83 |  0.07 |  1.418e-06 | 98.8
+Big_Nose             |  10.69 |  0.10 |  1.270e-26 | 99.1 | 0.895 |  -0.74 | -0.01 |  4.609e-01 | 99.1 | -84.99 | -0.92 |  0.000e+00 | 90.4
+Black_Hair           |   3.79 |  0.04 |  1.485e-04 | 99.1 | 0.651 |   2.89 |  0.03 |  3.886e-03 | 99.0 |  -5.37 | -0.06 |  8.077e-08 | 99.0
+Blond_Hair           |  -6.49 | -0.45 |  1.428e-10 | 99.1 | 0.998 |  -1.78 | -0.09 |  7.589e-02 | 98.9 |  -1.77 | -0.09 |  7.635e-02 | 98.9
+Blurry               |  -8.73 | -0.30 |  4.623e-18 | 99.1 | 0.146 |  -8.77 | -0.30 |  3.271e-18 | 99.1 | -11.49 | -0.43 |  7.878e-30 | 99.1
+Brown_Hair           |   0.13 |  0.00 |  9.005e-01 | 99.1 | 0.186 |   0.16 |  0.00 |  8.745e-01 | 99.1 |   7.24 |  0.09 |  4.784e-13 | 99.0
+Bushy_Eyebrows       |  12.69 |  0.11 |  8.541e-37 | 99.1 | 0.866 |   0.82 |  0.01 |  4.147e-01 | 99.1 | -37.67 | -0.52 | 2.855e-295 | 98.4
+Chubby               |   7.54 |  0.09 |  5.274e-14 | 99.1 | 0.819 |   0.26 |  0.00 |  7.941e-01 | 99.1 | -47.12 | -1.24 |  0.000e+00 | 97.7
+Double_Chin          |  11.65 |  0.12 |  4.429e-31 | 99.1 | 0.854 |  -1.10 | -0.01 |  2.712e-01 | 99.1 | -46.07 | -1.34 |  0.000e+00 | 97.7
+Eyeglasses           |   0.11 |  0.00 |  9.139e-01 | 99.1 | 0.082 |   0.03 |  0.00 |  9.738e-01 | 99.1 | -33.15 | -0.79 | 4.067e-220 | 98.8
+Goatee               |  28.46 |  0.18 | 1.844e-176 | 99.1 | 0.845 |   0.26 |  0.00 |  7.943e-01 | 99.1 | -61.14 | -1.43 |  0.000e+00 | 97.0
+Gray_Hair            |   7.14 |  0.09 |  1.100e-12 | 99.1 | 0.815 |  -0.56 | -0.01 |  5.782e-01 | 99.1 | -37.28 | -0.90 | 2.292e-261 | 98.9
+Heavy_Makeup         |  -5.78 | -1.38 |  5.830e-08 | 99.1 | 0.645 |  -5.68 | -1.30 |  9.533e-08 | 99.1 |   3.85 |  0.38 |  1.877e-04 | 77.6
+High_Cheekbones      |   4.35 |  0.04 |  1.368e-05 | 99.1 | 0.081 |   4.36 |  0.04 |  1.276e-05 | 99.1 |  22.22 |  0.20 | 1.141e-108 | 99.0
+Mouth_Slightly_Open  |  -0.25 | -0.00 |  8.059e-01 | 99.1 | 0.493 |   0.36 |  0.00 |  7.156e-01 | 99.1 |   8.04 |  0.08 |  9.543e-16 | 99.1
+Mustache             |  27.53 |  0.17 | 4.224e-165 | 99.1 | 0.835 |   0.64 |  0.01 |  5.213e-01 | 99.1 | -54.00 | -1.56 |  0.000e+00 | 96.7
+Narrow_Eyes          |  -2.44 | -0.04 |  1.458e-02 | 99.1 | 0.979 |  -3.44 | -0.06 |  5.828e-04 | 99.1 |  -3.45 | -0.06 |  5.737e-04 | 99.1
+No_Beard             | -26.61 | -0.22 | 3.118e-154 | 99.1 | 0.905 |   1.03 |  0.01 |  3.029e-01 | 99.1 | 140.10 |  1.64 |  0.000e+00 | 90.3
+Oval_Face            |   9.26 |  0.09 |  2.316e-20 | 99.1 | 0.349 |   9.33 |  0.09 |  1.202e-20 | 99.1 |  21.53 |  0.19 | 5.990e-102 | 98.9
+Pale_Skin            |  -5.28 | -0.27 |  1.566e-07 | 99.1 | 0.993 |  -2.92 | -0.13 |  3.548e-03 | 99.0 |  -2.91 | -0.13 |  3.639e-03 | 98.9
+Pointy_Nose          |   3.45 |  0.04 |  5.640e-04 | 99.1 | 0.126 |   3.52 |  0.04 |  4.314e-04 | 99.1 |  33.07 |  0.31 | 8.463e-232 | 97.4
+Receding_Hairline    |   1.66 |  0.03 |  9.773e-02 | 99.1 | 0.708 |  -0.03 | -0.00 |  9.760e-01 | 99.1 | -15.02 | -0.27 |  4.941e-50 | 99.0
+Rosy_Cheeks          |  -0.31 | -0.03 |  7.578e-01 | 99.1 | 0.597 |  -0.05 | -0.00 |  9.566e-01 | 99.1 |   8.55 |  0.34 |  2.335e-14 | 98.4
+Sideburns            |  28.83 |  0.17 | 4.836e-181 | 99.1 | 0.842 |  -0.63 | -0.00 |  5.261e-01 | 99.1 | -53.96 | -1.38 |  0.000e+00 | 97.4
+Smiling              |   7.82 |  0.07 |  5.431e-15 | 99.1 | 0.114 |   7.86 |  0.07 |  4.003e-15 | 99.1 |  18.02 |  0.16 |  2.360e-72 | 99.1
+Straight_Hair        |   5.29 |  0.05 |  1.233e-07 | 99.1 | 0.997 |  -0.52 | -0.01 |  6.043e-01 | 99.0 |  -0.50 | -0.01 |  6.169e-01 | 99.0
+Wavy_Hair            |  -5.82 | -0.10 |  6.025e-09 | 99.1 | 0.885 |   0.60 |  0.01 |  5.491e-01 | 99.1 |  25.62 |  0.30 | 4.719e-140 | 97.7
+Wearing_Earrings     |  -6.26 | -0.57 |  7.200e-10 | 99.1 | 0.980 |   0.47 |  0.03 |  6.370e-01 | 96.8 |   5.24 |  0.23 |  2.185e-07 | 93.7
+Wearing_Hat          |  -4.05 | -0.08 |  5.276e-05 | 99.1 | 0.281 |  -4.27 | -0.09 |  1.990e-05 | 99.1 | -26.71 | -0.78 | 1.458e-143 | 99.0
+Wearing_Lipstick     |  -7.20 | -1.14 |  6.270e-12 | 99.1 | 0.236 |  -7.10 | -1.12 |  1.149e-11 | 99.1 |  10.00 |  0.59 |  3.391e-20 | 66.3
+Wearing_Necklace     |  -5.66 | -0.36 |  2.188e-08 | 99.1 | 0.967 |   1.94 |  0.10 |  5.290e-02 | 98.9 |  27.25 |  0.74 | 7.742e-116 | 84.3
+Wearing_Necktie      |  24.80 |  0.17 | 9.566e-135 | 99.1 | 0.872 |  -1.72 | -0.01 |  8.586e-02 | 99.1 | -87.81 | -1.76 |  0.000e+00 | 94.4
+Young                |  -6.68 | -0.06 |  2.369e-11 | 99.1 | 0.850 |  -0.19 | -0.00 |  8.511e-01 | 99.1 |  34.61 |  0.38 | 1.845e-256 | 98.8
+---------------------+--------+-------+------------+------+-------+--------+-------+------------+------+--------+-------+------------+-----
+Averages (abs t/d)   |   9.25 |  0.19 |  9.326e-02 | 99.1 | 0.669 |   2.28 |  0.10 |  3.310e-01 | 99.0 |  34.09 |  0.64 |  2.313e-02 | 95.4
+---------------------+--------+-------+------------+------+-------+--------+-------+------------+------+--------+-------+------------+-----
+
+Table exported to result_imgs/debiasing_analysis_results.csv
+
+============================================================
+Analysis complete! All results saved to result_imgs/
+
+

@@ -52,19 +52,23 @@ TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION = True
 TOGGLE_DETAILED_MALE_GROUP_PLOTS = False # Toggle for creating plots for each attribute in male group comparison
 DISPLAY_NEGATIVE_CENTROIDS = False # Show negative centroids in attribute bias plots
 
+# New Filtering Flags
+FILTER_DEBIAS_LIST_COHEN_DEBIAS = False # Filter attributes based on Cohen's d threshold
+COHEN_D_THRESHOLD = 0.15  # Threshold for Cohen's d to consider an attribute biased
+
 
 
 # Dataset Configuration
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 DATASET_SPLIT = "train"
-MAX_SAMPLES = 1000 # Increased samples for more stable statistics
+MAX_SAMPLES = 100000 # Increased samples for more stable statistics
 BATCH_SIZE = 256
 
-FAST_CLASSIFIER_TOLLERANCE = 1e-3  # Tolerance for fast classifier convergence
-FAST_CLASSIFIER_MAX_ITER = 5  # Max iterations for fast classifier
+FAST_CLASSIFIER_TOLLERANCE = 1e-4  # Tolerance for fast classifier convergence
+FAST_CLASSIFIER_MAX_ITER = 10  # Max iterations for fast classifier
 
-SCALAR_TOLLERANCE = 1e-3  # Tolerance for scalar optimization
-SCALAR_MAX_ITERATION = 50  # Max iterations for scalar optimization
+SCALAR_TOLLERANCE = 1e-4  # Tolerance for scalar optimization
+SCALAR_MAX_ITERATION = 100  # Max iterations for scalar optimization
 
 # Output Configuration
 OUTPUT_DIR = "result_imgs"
@@ -136,6 +140,23 @@ def soft_debias(X, bias_basis, alpha):
     """Partially projects out the bias basis from X."""
     P = bias_basis.T @ bias_basis
     return X - alpha * (X @ P)
+
+def cohen_d(group1, group2):
+    """Calculates Cohen's d for independent samples."""
+    # ddof=1 for sample standard deviation
+    n1, n2 = len(group1), len(group2)
+    if n1 < 2 or n2 < 2:
+        return np.nan
+    s1, s2 = np.std(group1, ddof=1), np.std(group2, ddof=1)
+    mean1, mean2 = np.mean(group1), np.mean(group2)
+    
+    # Calculate pooled standard deviation
+    pooled_std = np.sqrt(((n1 - 1) * s1**2 + (n2 - 1) * s2**2) / (n1 + n2 - 2))
+    
+    if pooled_std < 1e-6: # Avoid division by zero
+        return 0.0
+        
+    return (mean1 - mean2) / pooled_std
 
 def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter= FAST_CLASSIFIER_MAX_ITER):
     """A faster, less precise classifier for use in optimization."""
@@ -526,7 +547,7 @@ def plot_attribute_bias_directions_custom(clip_embeddings, attr_matrix, attr_nam
     return result
 
 
-def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5):
+def show_misclassified_custom(dataset, y_test, y_pred, misclassified_indices, n=5):
     """Visualize misclassified images from gender classification"""
     if len(misclassified_indices) == 0:
         print("No misclassified images to show!")
@@ -539,7 +560,7 @@ def show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5
         idx = misclassified_indices[i]
         plt.subplot(1, n, i + 1)
         
-        img = images[idx]
+        img, _ = dataset[idx] # Load image on demand
         # Denormalize CLIP preprocessing
         mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(3, 1, 1)
         std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(3, 1, 1)
@@ -654,7 +675,7 @@ def plot_debiasing_tsne_comparison(baseline_data, soft_data, hard_data, gender_l
     save_plot(os.path.join("tsne_comparison", f"debiasing_tsne_comparison_{attribute_name}.png"))
 
 
-def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, images):
+def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, dataset):
     """Master function to run all analysis and debiasing steps."""
     
     # 1. Initial Gender Classification
@@ -680,14 +701,15 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
     # 3. Misclassified Visualization
     if TOGGLE_MISCLASSIFIED_VISUALIZATION:
         print("\nVisualizing misclassified examples...")
-        show_misclassified_custom(images, y_test, y_pred, misclassified_indices, n=5)
+        show_misclassified_custom(dataset, y_test, y_pred, misclassified_indices, n=5)
+
 
     # 4. Debiasing Analysis
     if TOGGLE_DEBIASING_ANALYSIS:
         print("\n" + "="*140)
         # also print MAX_SAMPLES, FAST_CLASSIFIER_TOLLERANCE, FAST_CLASSIFIER_MAX_ITER, SCALAR_TOLLERANCE,
         # SCALAR_MAX_ITERATION
-        print(f"DEBIASING ANALYSIS & INDIVIDUAL ALPHA OPTIMIZATION | n: {MAX_SAMPLES}, fToll: {FAST_CLASSIFIER_TOLLERANCE}, fMaxIter: {FAST_CLASSIFIER_MAX_ITER}, ScaToll: {SCALAR_TOLLERANCE}, ScaMaxIter: {SCALAR_MAX_ITERATION}")
+        print(f"DEBIASING ANALYSIS & INDIVIDUAL ALPHA OPTIMIZATION | n: {MAX_SAMPLES}, CohenDThresh: {COHEN_D_THRESHOLD}, fToll: {FAST_CLASSIFIER_TOLLERANCE}, fIter: {FAST_CLASSIFIER_MAX_ITER}, ScaToll: {SCALAR_TOLLERANCE}, ScaIter: {SCALAR_MAX_ITERATION}")
         print("="*140)
         
         X = clip_embeddings.numpy().astype(np.float32)
@@ -705,21 +727,50 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
 
         # --- Store results for averaging and CSV export ---
         results_data = []
+
+        # --- Pre-calculation for Cohen's d filtering ---
+        if FILTER_DEBIAS_LIST_COHEN_DEBIAS:
+            print(f"\nFiltering attributes with baseline |Cohen's d| < {COHEN_D_THRESHOLD}")
+            attributes_to_debias = set()
+            # First pass to calculate baseline Cohen's d for all attributes
+            clf_base_filter, _ = train_gender_classifier_fast(X_tr_base, y_tr_base, X_te_base, y_te_base, max_iter=FAST_CLASSIFIER_MAX_ITER)
+            base_probs_filter = clf_base_filter.predict_proba(X)[:, 1]
+
+            for attr_name_filter in BIAS_ATTRIBUTES:
+                if attr_name_filter not in attr_names:
+                    continue
+                attr_idx_filter = attr_names.index(attr_name_filter)
+                pos_filter = attr_mat_bool[:, attr_idx_filter]
+                neg_filter = ~pos_filter
+                mask1_filter = mask_male & pos_filter
+                mask2_filter = mask_male & neg_filter
+                if mask1_filter.sum() < 2 or mask2_filter.sum() < 2:
+                    continue
+                
+                base_d_filter = cohen_d(base_probs_filter[mask1_filter], base_probs_filter[mask2_filter])
+                if abs(base_d_filter) >= COHEN_D_THRESHOLD:
+                    attributes_to_debias.add(attr_name_filter)
+            
+            print(f"Found {len(attributes_to_debias)} of {len(BIAS_ATTRIBUTES)} attributes with significant bias to debias.")
+            del clf_base_filter, base_probs_filter # clean up
+        else:
+            # If not filtering, debias all attributes
+            attributes_to_debias = set(BIAS_ATTRIBUTES)
         
         # --- Print Table Header ---
         header1 = (
-            f"{'Attribute':<20} | {'Baseline':^27} | "
-            f"{'Soft-Debias':^35} | {'Hard-Debias':^30}"
+            f"{'Attribute':<20} | {'Baseline':^34} | "
+            f"{'Soft-Debias':^42} | {'Hard-Debias':^30}"
         )
         header2 = (
-            f"{'':<20} | {'t':>6} | {'p':>11} | {'Acc%':>4} | "
-            f"{'α':>5} | {'t':>6} | {'p':>11} | {'Acc%':>4} | "
-            f"{'t':>6} | {'p':>11} | {'Acc%':>4}"
+            f"{'':<20} | {'t':>6} | {'C.d':>5} | {'p':>10} | {'Acc%':>4} | "
+            f"{'α':>5} | {'t':>6} | {'C.d':>5} | {'p':>10} | {'Acc%':>4} | "
+            f"{'t':>6} | {'C.d':>5} | {'p':>10} | {'Acc%':>4}"
         )
         separator = (
-            f"{'-'*20}-+-{'-'*6}-+-{'-'*11}-+-{'-'*4}-+-"
-            f"{'-'*5}-+-{'-'*6}-+-{'-'*11}-+-{'-'*4}-+-"
-            f"{'-'*6}-+-{'-'*11}-+-{'-'*4}"
+            f"{'-'*20}-+-{'-'*6}-+-{'-'*5}-+-{'-'*10}-+-{'-'*4}-+-"
+            f"{'-'*5}-+-{'-'*6}-+-{'-'*5}-+-{'-'*10}-+-{'-'*4}-+-"
+            f"{'-'*6}-+-{'-'*5}-+-{'-'*10}-+-{'-'*4}"
         )
         print(header1)
         print(header2)
@@ -746,62 +797,66 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
             base_acc *= 100
             base_probs = clf_base.predict_proba(X)[:, 1]
             base_t, base_p = ttest_ind(base_probs[mask1], base_probs[mask2], equal_var=False)
+            base_d = cohen_d(base_probs[mask1], base_probs[mask2])
 
             # --- Initialize metrics and classifiers for this loop iteration ---
-            alpha, soft_t, soft_p, soft_acc, hard_t, hard_p, hard_acc = [np.nan] * 7
+            alpha, soft_t, soft_p, soft_d, soft_acc, hard_t, hard_p, hard_d, hard_acc = [np.nan] * 9
             clf_soft, clf_hard = None, None
             X_soft, X_hard = None, None
             
-            # --- All debiasing happens in this block ---
-            mu_pos = X[pos].mean(0)
-            mu_neg = X[neg].mean(0)
-            v = (mu_pos - mu_neg).astype(np.float32)
-            
-            if np.linalg.norm(v) > 1e-12:
-                v /= (np.linalg.norm(v) + 1e-12)
-                bias_basis = v.reshape(1, -1)
-
-                # --- Alpha Calculation & Soft Debias ---
-                optimal_alpha = np.nan
-                if TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION:
-                    res_alpha = find_optimal_alpha(X, y, attr_mat_bool, attr_names, attr_name, train_idx, test_idx)
-                    if res_alpha is not None:
-                        optimal_alpha = res_alpha
-                else:
-                    optimal_alpha = DEBIAS_LAMBDA
+            # --- All debiasing happens in this block, only if attribute is in the filtered list ---
+            if attr_name in attributes_to_debias:
+                mu_pos = X[pos].mean(0)
+                mu_neg = X[neg].mean(0)
+                v = (mu_pos - mu_neg).astype(np.float32)
                 
-                alpha = optimal_alpha
-                if not np.isnan(alpha):
-                    X_soft = soft_debias(X, bias_basis, alpha)
-                    X_tr_soft, X_te_soft = X_soft[train_idx], X_soft[test_idx]
-                    clf_soft, soft_acc = train_gender_classifier_fast(X_tr_soft, y_tr_base, X_te_soft, y_te_base, max_iter=FAST_CLASSIFIER_MAX_ITER)
-                    soft_acc *= 100
-                    soft_probs = clf_soft.predict_proba(X_soft)[:, 1]
-                    soft_t, soft_p = ttest_ind(soft_probs[mask1], soft_probs[mask2], equal_var=False)
+                if np.linalg.norm(v) > 1e-12:
+                    v /= (np.linalg.norm(v) + 1e-12)
+                    bias_basis = v.reshape(1, -1)
 
-                # --- Hard Debias ---
-                X_hard = hard_debias(X, bias_basis)
-                X_tr_hard, X_te_hard = X_hard[train_idx], X_hard[test_idx]
-                clf_hard, hard_acc = train_gender_classifier_fast(X_tr_hard, y_tr_base, X_te_hard, y_te_base,
-                                                                  max_iter=FAST_CLASSIFIER_MAX_ITER)
-                hard_acc *= 100
-                hard_probs = clf_hard.predict_proba(X_hard)[:, 1]
-                hard_t, hard_p = ttest_ind(hard_probs[mask1], hard_probs[mask2], equal_var=False)
+                    # --- Alpha Calculation & Soft Debias ---
+                    optimal_alpha = np.nan
+                    if TOGGLE_INDIVIDUAL_ALPHA_OPTIMIZATION:
+                        res_alpha = find_optimal_alpha(X, y, attr_mat_bool, attr_names, attr_name, train_idx, test_idx)
+                        if res_alpha is not None:
+                            optimal_alpha = res_alpha
+                    else:
+                        optimal_alpha = DEBIAS_LAMBDA
+                    
+                    alpha = optimal_alpha
+                    if not np.isnan(alpha):
+                        X_soft = soft_debias(X, bias_basis, alpha)
+                        X_tr_soft, X_te_soft = X_soft[train_idx], X_soft[test_idx]
+                        clf_soft, soft_acc = train_gender_classifier_fast(X_tr_soft, y_tr_base, X_te_soft, y_te_base, max_iter=FAST_CLASSIFIER_MAX_ITER)
+                        soft_acc *= 100
+                        soft_probs = clf_soft.predict_proba(X_soft)[:, 1]
+                        soft_t, soft_p = ttest_ind(soft_probs[mask1], soft_probs[mask2], equal_var=False)
+                        soft_d = cohen_d(soft_probs[mask1], soft_probs[mask2])
+
+                    # --- Hard Debias ---
+                    X_hard = hard_debias(X, bias_basis)
+                    X_tr_hard, X_te_hard = X_hard[train_idx], X_hard[test_idx]
+                    clf_hard, hard_acc = train_gender_classifier_fast(X_tr_hard, y_tr_base, X_te_hard, y_te_base,
+                                                                    max_iter=FAST_CLASSIFIER_MAX_ITER)
+                    hard_acc *= 100
+                    hard_probs = clf_hard.predict_proba(X_hard)[:, 1]
+                    hard_t, hard_p = ttest_ind(hard_probs[mask1], hard_probs[mask2], equal_var=False)
+                    hard_d = cohen_d(hard_probs[mask1], hard_probs[mask2])
 
             # --- Store and Print Results Row ---
             row_data = {
-                "Attribute": attr_name, "Baseline t": base_t, "Baseline p": base_p, "Baseline Acc": base_acc,
-                "Alpha": alpha, "Soft-Debias t": soft_t, "Soft-Debias p": soft_p, "Soft-Debias Acc": soft_acc,
-                "Hard-Debias t": hard_t, "Hard-Debias p": hard_p, "Hard-Debias Acc": hard_acc
+                "Attribute": attr_name, "Baseline t": base_t, "Baseline C'd": base_d, "Baseline p": base_p, "Baseline Acc": base_acc,
+                "Alpha": alpha, "Soft-Debias t": soft_t, "Soft-Debias C'd": soft_d, "Soft-Debias p": soft_p, "Soft-Debias Acc": soft_acc,
+                "Hard-Debias t": hard_t, "Hard-Debias C'd": hard_d, "Hard-Debias p": hard_p, "Hard-Debias Acc": hard_acc
             }
             results_data.append(row_data)
             
             print(
                 f"{attr_name:<20} | "
-                f"{format_float(base_t, '6.2f')} | {format_float(base_p, '11.3e')} | {format_float(base_acc, '4.1f')} | "
+                f"{format_float(base_t, '6.2f')} | {format_float(base_d, '5.2f')} | {format_float(base_p, '10.3e')} | {format_float(base_acc, '4.1f')} | "
                 f"{format_float(alpha, '5.3f')} | "
-                f"{format_float(soft_t, '6.2f')} | {format_float(soft_p, '11.3e')} | {format_float(soft_acc, '4.1f')} | "
-                f"{format_float(hard_t, '6.2f')} | {format_float(hard_p, '11.3e')} | {format_float(hard_acc, '4.1f')}"
+                f"{format_float(soft_t, '6.2f')} | {format_float(soft_d, '5.2f')} | {format_float(soft_p, '10.3e')} | {format_float(soft_acc, '4.1f')} | "
+                f"{format_float(hard_t, '6.2f')} | {format_float(hard_d, '5.2f')} | {format_float(hard_p, '10.3e')} | {format_float(hard_acc, '4.1f')}"
             )
             
             # --- Generate 3-panel PCA plot if toggles are enabled ---
@@ -836,22 +891,25 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
         print(separator)
         
         avg_base_t = np.nanmean([np.abs(r['Baseline t']) for r in results_data])
+        avg_base_d = np.nanmean([np.abs(r["Baseline C'd"]) for r in results_data])
         avg_base_p = np.nanmean([r['Baseline p'] for r in results_data])
         avg_base_acc = np.nanmean([r['Baseline Acc'] for r in results_data])
         avg_alpha = np.nanmean([r['Alpha'] for r in results_data])
         avg_soft_t = np.nanmean([np.abs(r['Soft-Debias t']) for r in results_data])
+        avg_soft_d = np.nanmean([np.abs(r["Soft-Debias C'd"]) for r in results_data])
         avg_soft_p = np.nanmean([r['Soft-Debias p'] for r in results_data])
         avg_soft_acc = np.nanmean([r['Soft-Debias Acc'] for r in results_data])
         avg_hard_t = np.nanmean([np.abs(r['Hard-Debias t']) for r in results_data])
+        avg_hard_d = np.nanmean([np.abs(r["Hard-Debias C'd"]) for r in results_data])
         avg_hard_p = np.nanmean([r['Hard-Debias p'] for r in results_data])
         avg_hard_acc = np.nanmean([r['Hard-Debias Acc'] for r in results_data])
 
         print(
-            f"{'Averages (abs t)':<20} | "
-            f"{format_float(avg_base_t, '6.2f')} | {format_float(avg_base_p, '11.3e')} | {format_float(avg_base_acc, '4.1f')} | "
+            f"{'Averages (abs t/d)':<20} | "
+            f"{format_float(avg_base_t, '6.2f')} | {format_float(avg_base_d, '5.2f')} | {format_float(avg_base_p, '10.3e')} | {format_float(avg_base_acc, '4.1f')} | "
             f"{format_float(avg_alpha, '5.3f')} | "
-            f"{format_float(avg_soft_t, '6.2f')} | {format_float(avg_soft_p, '11.3e')} | {format_float(avg_soft_acc, '4.1f')} | "
-            f"{format_float(avg_hard_t, '6.2f')} | {format_float(avg_hard_p, '11.3e')} | {format_float(avg_hard_acc, '4.1f')}"
+            f"{format_float(avg_soft_t, '6.2f')} | {format_float(avg_soft_d, '5.2f')} | {format_float(avg_soft_p, '10.3e')} | {format_float(avg_soft_acc, '4.1f')} | "
+            f"{format_float(avg_hard_t, '6.2f')} | {format_float(avg_hard_d, '5.2f')} | {format_float(avg_hard_p, '10.3e')} | {format_float(avg_hard_acc, '4.1f')}"
         )
         print(separator)
 
@@ -864,6 +922,7 @@ def run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, i
                 writer.writeheader()
                 writer.writerows(results_data)
             print(f"\nTable exported to {csv_filepath}")
+
 
 
 # ==================== MAIN PIPELINE ====================
@@ -886,7 +945,7 @@ def main():
     
     # Get CLIP embeddings and labels
     print(f"\nExtracting CLIP embeddings for {MAX_SAMPLES} samples...")
-    clip_embeddings, gender_labels, images = get_labels(dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES)
+    clip_embeddings, gender_labels = get_labels(dataset, batch_size=BATCH_SIZE, max_samples=MAX_SAMPLES)
     
     # Get all embeddings with attributes
     clip_embs_all, attr_matrix, _, attr_names = get_all_embeddings_and_attrs(
@@ -908,7 +967,7 @@ def main():
     
     # Run the main, consolidated analysis workflow
     if TOGGLE_GENDER_CLASSIFICATION:
-        run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, images)
+        run_full_analysis(clip_embeddings, gender_labels, attr_matrix, attr_names, dataset)
 
     print("\n" + "="*60)
     print(f"Analysis complete! All results saved to {OUTPUT_DIR}/")

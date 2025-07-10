@@ -26,7 +26,6 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
     dataloader = DataLoader(dataset, batch_size=batch_size)
     clip_embeddings = []
     gender_labels = []
-    images_list = []
 
     num_batches = math.ceil(max_samples / batch_size)
     limited_loader = islice(dataloader, num_batches)
@@ -34,7 +33,6 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
     for images, attrs in tqdm(limited_loader, total=num_batches, desc="Getting labels", unit="batch"):
 
         labels = attrs[:, male_idx].int()
-        images_list.append(images.cpu())
         images = images.to(device)
 
         with torch.no_grad():
@@ -45,9 +43,8 @@ def get_labels(dataset, batch_size=64, max_samples=5000):
 
     clip_embeddings = torch.cat(clip_embeddings, dim=0)
     gender_labels = torch.cat(gender_labels, dim=0)
-    images = torch.cat(images_list, dim=0)
 
-    return clip_embeddings, gender_labels, images
+    return clip_embeddings, gender_labels
 
 
 def get_all_embeddings_and_attrs(dataset, batch_size=64, max_samples=5000):
