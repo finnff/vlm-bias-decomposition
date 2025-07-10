@@ -11,15 +11,35 @@ from sklearn.exceptions import ConvergenceWarning
 import warnings
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
-warnings.filterwarnings("ignore", message="Precision loss occurred in moment calculation")
+warnings.filterwarnings(
+    "ignore", message="Precision loss occurred in moment calculation"
+)
 
-# -- 1) Load and preprocess embeddings (100k samples)
-dataset = load_celeba_dataset(root="./data", split="train", download=False)
-clip_embeddings, gender_labels, _ = get_labels(dataset, batch_size=64, max_samples=100000)
+# -- 1) Load and preprocess embeddings
+NUM_SAMPLES = 10000
+print(f"Processing {NUM_SAMPLES} samples...")
+dataset = load_celeba_dataset(root="../data", split="train", download=False)
+
+# Load data with consistent batching
+clip_embeddings, gender_labels, _ = get_labels(dataset, batch_size=256, max_samples=NUM_SAMPLES)
+_, attr_mat_np, _, attr_names = get_all_embeddings_and_attrs(dataset, batch_size=256, max_samples=NUM_SAMPLES)
+
+# Convert to numpy arrays
 X = clip_embeddings.cpu().numpy().astype(np.float32)
 y = gender_labels.cpu().numpy()
-_, attr_mat, _, attr_names = get_all_embeddings_and_attrs(dataset, max_samples=100000)
-attr_mat = attr_mat.astype(bool)
+attr_mat = attr_mat_np.astype(bool)
+
+# --- Ensure consistent sample size ---
+min_len = min(len(X), len(attr_mat))
+X = X[:min_len]
+y = y[:min_len]
+attr_mat = attr_mat[:min_len]
+
+if min_len < NUM_SAMPLES:
+    print(f"Warning: Using {min_len} samples, which is the minimum common length returned by data loaders.")
+NUM_SAMPLES = min_len
+del dataset, clip_embeddings, gender_labels, attr_mat_np
+gc.collect()
 
 male_idx = attr_names.index("Male")
 mask_male = attr_mat[:, male_idx]
@@ -31,6 +51,7 @@ train_idx, test_idx = train_test_split(
 )
 y_tr_base, y_te_base = y[train_idx], y[test_idx]
 
+
 # -- 3) Fast training function using SGDClassifier
 def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter=10):
     clf = SGDClassifier(loss="log_loss", max_iter=max_iter, tol=1e-3, random_state=0)
@@ -38,6 +59,7 @@ def train_gender_classifier_fast(X_tr, y_tr, X_te, y_te, max_iter=10):
     y_pred = clf.predict(X_te)
     acc = accuracy_score(y_te, y_pred)
     return clf, acc
+
 
 # -- 4) Optimize alpha per attribute
 results = []
@@ -84,17 +106,21 @@ for attr in attr_names:
         t_stat_for_alpha,
         bounds=(0.0, 0.99),
         method="bounded",
-        options={"xatol": 1e-4, "maxiter": 100}
+        options={"xatol": 1e-4, "maxiter": 100},
     )
 
     best_alpha = res.x
 
     # re-evaluate final t-stat at best alpha
     X_soft = X - best_alpha * (X @ P)
-    probs_test_final = SGDClassifier(loss="log_loss", max_iter=5).fit(
-        X_soft[train_idx], y_tr_base).predict_proba(X_soft[test_idx])[:, 1]
-    t, _ = ttest_ind(probs_test_final[mask1_te], probs_test_final[mask2_te], equal_var=False)
+    probs_test_final = (
+        SGDClassifier(loss="log_loss", max_iter=5)
+        .fit(X_soft[train_idx], y_tr_base)
+        .predict_proba(X_soft[test_idx])[:, 1]
+    )
+    t, _ = ttest_ind(
+        probs_test_final[mask1_te], probs_test_final[mask2_te], equal_var=False
+    )
 
     results.append((attr, best_alpha, abs(t)))
     print(f"{attr:25s}  α = {best_alpha:.3f}   |t| = {abs(t):.2f}")
-

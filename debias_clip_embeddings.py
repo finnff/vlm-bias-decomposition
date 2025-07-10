@@ -29,10 +29,10 @@ from sklearn.manifold import TSNE
 # ==================== CONFIGURATION ====================
 # Feature Flags - Toggle each analysis component
 TOGGLE_GENDER_CLASSIFICATION = True
-TOGGLE_PCA_VISUALIZATION = True
-TOGGLE_TSNE_VISUALIZATION = True
+TOGGLE_PCA_VISUALIZATION = False
+TOGGLE_TSNE_VISUALIZATION = False
 TOGGLE_ATTRIBUTE_BIAS_DIRECTIONS = True
-TOGGLE_MISCLASSIFIED_VISUALIZATION = True  
+TOGGLE_MISCLASSIFIED_VISUALIZATION = False
 TOGGLE_MALE_GROUP_COMPARISON = True
 TOGGLE_DEBIASING_ANALYSIS = True
 TOGGLE_DETAILED_MALE_GROUP_PLOTS = False # Toggle for creating plots for each attribute in male group comparison
